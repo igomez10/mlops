@@ -54,8 +54,7 @@ resource "google_cloud_run_v2_service" "mlflow" {
   location = var.region
 
   template {
-    service_account   = google_service_account.mlflow.email
-    startup_cpu_boost = true
+    service_account = google_service_account.mlflow.email
 
     scaling {
       max_instance_count = 1
@@ -80,6 +79,7 @@ resource "google_cloud_run_v2_service" "mlflow" {
       }
 
       resources {
+        startup_cpu_boost = true
         limits = {
           memory = "4Gi"
           cpu    = "2"
