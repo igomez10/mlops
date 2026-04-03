@@ -118,6 +118,12 @@ resource "google_service_account" "fastapi" {
   display_name = "FastAPI Cloud Run Service Account"
 }
 
+resource "google_storage_bucket_iam_member" "fastapi_artifacts_reader" {
+  bucket = google_storage_bucket.mlflow_artifacts.name
+  role   = "roles/storage.objectViewer"
+  member = "serviceAccount:${google_service_account.fastapi.email}"
+}
+
 resource "google_cloud_run_v2_service" "fastapi" {
   name     = "fastapi"
   location = var.region
@@ -127,6 +133,16 @@ resource "google_cloud_run_v2_service" "fastapi" {
 
     containers {
       image = "${var.region}-docker.pkg.dev/${var.project_id}/mlflow/fastapi:latest"
+
+      env {
+        name  = "MLFLOW_TRACKING_URI"
+        value = google_cloud_run_v2_service.mlflow.uri
+      }
+
+      env {
+        name  = "MLFLOW_MODEL_URI"
+        value = "runs:/6736c234459f44769f3475477b730f89/model"
+      }
 
       resources {
         startup_cpu_boost = true
