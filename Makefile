@@ -3,7 +3,11 @@ CONTAINER_NAME := mlflow
 VOLUME_NAME := mlflow-data
 PORT := 5001
 
-.PHONY: build run stop clean tf-plan tf-apply
+GCP_REGION := us-central1
+GCP_PROJECT := mlops-492103
+AR_IMAGE := $(GCP_REGION)-docker.pkg.dev/$(GCP_PROJECT)/mlflow/mlflow:v3.10.1-full
+
+.PHONY: build run stop clean tf-plan tf-apply push-mlflow redeploy
 
 build:
 	docker build -t $(IMAGE_NAME) .
@@ -30,4 +34,19 @@ tf-plan:
 	cd terraform && terraform plan
 
 tf-apply:
-	cd terraform && terraform apply
+	cd terraform && terraform apply -auto-approve
+
+MLFLOW_VERSION := v3.10.1-full
+
+push-mlflow:
+	docker pull --platform linux/amd64 ghcr.io/mlflow/mlflow:$(MLFLOW_VERSION)
+	docker tag ghcr.io/mlflow/mlflow:$(MLFLOW_VERSION) $(AR_IMAGE)
+	gcloud auth configure-docker $(GCP_REGION)-docker.pkg.dev --quiet
+	docker push $(AR_IMAGE)
+
+redeploy:
+	gcloud run deploy mlflow \
+		--image $(AR_IMAGE) \
+		--region $(GCP_REGION) \
+		--project $(GCP_PROJECT) \
+		--quiet
