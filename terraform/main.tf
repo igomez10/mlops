@@ -71,6 +71,7 @@ resource "google_cloud_run_v2_service" "mlflow" {
         "--backend-store-uri", "/data",
         "--allowed-hosts", "*",
         "--cors-allowed-origins", "*",
+        "--serve-artifacts",
       ]
 
       env {

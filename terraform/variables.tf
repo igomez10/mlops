@@ -14,3 +14,19 @@ variable "zone" {
   type        = string
   default     = "us-central1-a"
 }
+
+variable "billing_account_id" {
+  description = "The GCP billing account ID linked to this project."
+  type        = string
+}
+
+variable "budget_amount_usd" {
+  description = "Monthly budget threshold in USD before alerts fire."
+  type        = number
+  default     = 50
+}
+
+variable "alert_email" {
+  description = "Email address to receive monitoring alerts."
+  type        = string
+}
