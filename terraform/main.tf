@@ -129,6 +129,7 @@ resource "google_cloud_run_v2_service" "fastapi" {
       image = "${var.region}-docker.pkg.dev/${var.project_id}/mlflow/fastapi:latest"
 
       resources {
+        startup_cpu_boost = true
         limits = {
           memory = "512Mi"
           cpu    = "1"
