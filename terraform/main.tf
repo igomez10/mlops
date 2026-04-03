@@ -112,3 +112,39 @@ resource "google_cloud_run_v2_service_iam_member" "mlflow_public" {
   role     = "roles/run.invoker"
   member   = "allUsers"
 }
+
+resource "google_service_account" "fastapi" {
+  account_id   = "fastapi-cloudrun"
+  display_name = "FastAPI Cloud Run Service Account"
+}
+
+resource "google_cloud_run_v2_service" "fastapi" {
+  name     = "fastapi"
+  location = var.region
+
+  template {
+    service_account = google_service_account.fastapi.email
+
+    containers {
+      image = "${var.region}-docker.pkg.dev/${var.project_id}/mlflow/fastapi:latest"
+
+      resources {
+        limits = {
+          memory = "512Mi"
+          cpu    = "1"
+        }
+      }
+
+      ports {
+        container_port = 8000
+      }
+    }
+  }
+}
+
+resource "google_cloud_run_v2_service_iam_member" "fastapi_public" {
+  name     = google_cloud_run_v2_service.fastapi.name
+  location = var.region
+  role     = "roles/run.invoker"
+  member   = "allUsers"
+}
