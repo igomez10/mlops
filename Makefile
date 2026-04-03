@@ -3,7 +3,7 @@ CONTAINER_NAME := mlflow
 VOLUME_NAME := mlflow-data
 PORT := 5001
 
-.PHONY: build run stop clean
+.PHONY: build run stop clean tf-plan tf-apply
 
 build:
 	docker build -t $(IMAGE_NAME) .
@@ -25,3 +25,9 @@ stop:
 
 clean: stop
 	docker volume rm $(VOLUME_NAME)
+
+tf-plan:
+	cd terraform && terraform plan
+
+tf-apply:
+	cd terraform && terraform apply
