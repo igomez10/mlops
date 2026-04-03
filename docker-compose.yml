@@ -70,6 +70,13 @@ services:
     ports:
       - "5001:5000"
 
+  fastapi:
+    build:
+      context: .
+      dockerfile: Dockerfile.fastapi
+    ports:
+      - "8000:8000"
+
 volumes:
   postgres_data:
   minio_data:
