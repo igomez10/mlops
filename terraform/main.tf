@@ -54,7 +54,8 @@ resource "google_cloud_run_v2_service" "mlflow" {
   location = var.region
 
   template {
-    service_account = google_service_account.mlflow.email
+    service_account   = google_service_account.mlflow.email
+    startup_cpu_boost = true
 
     scaling {
       max_instance_count = 1
@@ -70,6 +71,7 @@ resource "google_cloud_run_v2_service" "mlflow" {
         "--default-artifact-root", "gs://${var.project_id}-mlflow-artifacts",
         "--backend-store-uri", "/data",
         "--allowed-hosts", "*",
+        "--cors-allowed-origins", "*",
       ]
 
       env {
