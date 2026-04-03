@@ -1,3 +1,6 @@
+mlflow
+pandas
+google-cloud-storage
 annotated-doc==0.0.4
 annotated-types==0.7.0
 anyio==4.13.0

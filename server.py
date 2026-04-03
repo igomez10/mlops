@@ -1,14 +1,19 @@
 # import io
 # import torch
 # import requests
+import os
+from contextlib import asynccontextmanager
+
+import mlflow
+import mlflow.pyfunc
+import pandas as pd
 import fastapi
 
 # from PIL import Image
+# from transformers import pipeline
 from pydantic import BaseModel
 
-# from transformers import pipeline
-
-app = fastapi.FastAPI()
+app_state = {}
 
 # detector = pipeline(
 #     task="object-detection",
@@ -16,6 +21,21 @@ app = fastapi.FastAPI()
 #     dtype=torch.float16,
 #     device=0,
 # )
+
+
+@asynccontextmanager
+async def lifespan(app: fastapi.FastAPI):
+    mlflow.set_tracking_uri(os.environ["MLFLOW_TRACKING_URI"])
+    model_uri = os.environ.get(
+        "MLFLOW_MODEL_URI",
+        f"models:/{os.environ.get('MLFLOW_MODEL_NAME', 'model')}/latest",
+    )
+    app_state["model"] = mlflow.pyfunc.load_model(model_uri)
+    yield
+    app_state.clear()
+
+
+app = fastapi.FastAPI(lifespan=lifespan)
 
 
 @app.get("/health")
@@ -40,7 +60,6 @@ def addWithQueryParameters(num1: int, num2: int) -> dict:
     return {"result": result}
 
 
-# add with body parameters
 @app.post("/add_body_parameters")
 def addWithBodyParameters(request: dict) -> dict:
     num1 = int(request.get("num1"))
@@ -67,24 +86,19 @@ def addWithBodyParameters(request: dict) -> dict:
 
 
 class PredictRequest(BaseModel):
-    # Define your input data structure here
-    num1: int
-    num2: int
+    sqft: int
+    rooms: int
 
 
 class PredictResponse(BaseModel):
-    # Define your output data structure here
-    prediction: str
+    prediction: int
 
 
 @app.post("/predict")
 def predict(inputdata: PredictRequest) -> PredictResponse:
-    # Dummy prediction logic
-    b0 = 27
-    b1 = 256
-    b2 = 339
-    prediction = b0 + b1 * inputdata.num1 + b2 * inputdata.num2
-    return PredictResponse(prediction=str(prediction))
+    data = pd.DataFrame([{"sqft": inputdata.sqft, "rooms": inputdata.rooms}])
+    result = app_state["model"].predict(data)
+    return PredictResponse(prediction=int(result[0]))
 
 
 def main() -> None:

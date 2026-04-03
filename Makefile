@@ -8,7 +8,7 @@ GCP_PROJECT := mlops-492103
 AR_IMAGE := $(GCP_REGION)-docker.pkg.dev/$(GCP_PROJECT)/mlflow/mlflow:v3.10.1-full
 FASTAPI_IMAGE := $(GCP_REGION)-docker.pkg.dev/$(GCP_PROJECT)/mlflow/fastapi:latest
 
-.PHONY: build run stop clean tf-plan tf-apply push-mlflow push-fastapi redeploy redeploy-fastapi
+.PHONY: build run stop clean tf-plan tf-apply push-mlflow push-fastapi redeploy-mlflow redeploy-fastapi
 
 build:
 	docker build -t $(IMAGE_NAME) .
@@ -45,7 +45,7 @@ push-mlflow:
 	gcloud auth configure-docker $(GCP_REGION)-docker.pkg.dev --quiet
 	docker push $(AR_IMAGE)
 
-redeploy:
+redeploy-mlflow:
 	gcloud run deploy mlflow \
 		--image $(AR_IMAGE) \
 		--region $(GCP_REGION) \

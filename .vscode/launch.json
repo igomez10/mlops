@@ -1,0 +1,18 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "FastAPI",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "uvicorn",
+      "args": ["server:app", "--host", "0.0.0.0", "--port", "8000", "--reload"],
+      "env": {
+        "MLFLOW_TRACKING_URI": "https://mlflow-34676207684.us-central1.run.app",
+        "MLFLOW_MODEL_URI": "runs:/6736c234459f44769f3475477b730f89/model"
+      },
+      "jinja": true,
+      "justMyCode": true
+    }
+  ]
+}
