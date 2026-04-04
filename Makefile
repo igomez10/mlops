@@ -6,7 +6,7 @@ PORT := 5001
 GCP_REGION := us-central1
 GCP_PROJECT := mlops-492103
 AR_IMAGE := $(GCP_REGION)-docker.pkg.dev/$(GCP_PROJECT)/mlflow/mlflow:v3.10.1-full
-FASTAPI_IMAGE := $(GCP_REGION)-docker.pkg.dev/$(GCP_PROJECT)/mlflow/fastapi:latest
+FASTAPI_IMAGE := $(GCP_REGION)-docker.pkg.dev/$(GCP_PROJECT)/fastapi/fastapi:latest
 MLFLOW_VERSION := v3.10.1-full
 
 .PHONY: build run stop clean tf-plan tf-apply push-mlflow push-fastapi redeploy-mlflow redeploy-fastapi

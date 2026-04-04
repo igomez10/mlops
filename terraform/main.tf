@@ -9,6 +9,12 @@ resource "google_artifact_registry_repository" "mlflow" {
   format        = "DOCKER"
 }
 
+resource "google_artifact_registry_repository" "fastapi" {
+  repository_id = "fastapi"
+  location      = var.region
+  format        = "DOCKER"
+}
+
 resource "google_artifact_registry_repository_iam_member" "mlflow_ar_reader" {
   location   = var.region
   repository = google_artifact_registry_repository.mlflow.repository_id
@@ -133,7 +139,7 @@ resource "google_cloud_run_v2_service" "fastapi" {
     service_account = google_service_account.fastapi.email
 
     containers {
-      image = "${var.region}-docker.pkg.dev/${var.project_id}/mlflow/fastapi:latest"
+      image = "${var.region}-docker.pkg.dev/${var.project_id}/fastapi/fastapi:latest"
 
       env {
         name  = "MLFLOW_TRACKING_URI"
