@@ -75,4 +75,6 @@ The first request will be slow as the service needs to spin up, but subsequent r
 curl -X POST https://fastapi-34676207684.us-central1.run.app/predict \
 -H "Content-Type: application/json" \
 -d '{"sqft": 1500, "rooms": 3}'
+
+{"prediction": 1234}
 ```
