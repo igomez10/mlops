@@ -63,6 +63,10 @@ infrastructure management and running daily operations.
 MLflow server running on Cloud Run:
 https://mlflow-34676207684.us-central1.run.app/#/experiments/467518636860402424/runs/6736c234459f44769f3475477b730f89
 
+![MLflow Runs](./submission2/MLflow_runs_v2.png)
+
+![MLflow Example Run](./submission2/MLflow_example_run.png)
+
 ### Example of how to call the FastAPI endpoint:
 
 This is a demo model for sqft and rooms but this is just a dummy to show an example. We will migrate to other models related to our project.
