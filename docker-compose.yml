@@ -13,9 +13,7 @@ services:
       - "5001:5000"
 
   fastapi:
-    build:
-      context: .
-      dockerfile: Dockerfile.fastapi
+    image: us-central1-docker.pkg.dev/mlops-492103/fastapi/fastapi:latest
     depends_on:
       - mlflow
     environment:

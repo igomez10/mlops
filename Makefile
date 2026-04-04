@@ -11,8 +11,8 @@ MLFLOW_VERSION := v3.10.1-full
 
 .PHONY: build run stop clean tf-plan tf-apply push-mlflow push-fastapi redeploy-mlflow redeploy-fastapi run-fastapi
 
-build:
-	docker build -t $(IMAGE_NAME) .
+build-fastapi:
+	docker build -t $(FASTAPI_IMAGE) -f Dockerfile.fastapi .
 
 run:
 	docker run -d \
@@ -66,3 +66,6 @@ redeploy-fastapi:
 
 run-fastapi:
 	uvicorn server:app --host 0.0.0.0 --port 8000 --reload
+
+start-docker-compose:
+	docker-compose up -d
