@@ -1,9 +1,0 @@
-FROM ubuntu:latest
-
-RUN echo "i like pizza"
-
-RUN ls
-
-CMD echo "i like pizza"
-
-

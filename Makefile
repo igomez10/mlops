@@ -7,6 +7,7 @@ GCP_REGION := us-central1
 GCP_PROJECT := mlops-492103
 AR_IMAGE := $(GCP_REGION)-docker.pkg.dev/$(GCP_PROJECT)/mlflow/mlflow:v3.10.1-full
 FASTAPI_IMAGE := $(GCP_REGION)-docker.pkg.dev/$(GCP_PROJECT)/mlflow/fastapi:latest
+MLFLOW_VERSION := v3.10.1-full
 
 .PHONY: build run stop clean tf-plan tf-apply push-mlflow push-fastapi redeploy-mlflow redeploy-fastapi
 
@@ -37,7 +38,6 @@ tf-plan:
 tf-apply:
 	cd terraform && terraform apply -auto-approve
 
-MLFLOW_VERSION := v3.10.1-full
 
 push-mlflow:
 	docker pull --platform linux/amd64 ghcr.io/mlflow/mlflow:$(MLFLOW_VERSION)
