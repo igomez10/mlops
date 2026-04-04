@@ -17,6 +17,15 @@ The FastAPI endpoints are defined in `server.py`:
 
 2.  Docker image proof 
 ○  Screenshot showing your published image in the registry 
+
+<!-- /Users/ignacio/mlops/submission2/proof_image_fastapi.png -->
+
+image proof fastapi.png:
+![image proof](proof_image_fastapi.png)
+
+image proof mlflow.png:
+![image proof](proof_image_mlflow.png)
+
 ○  Image name must match what is used in your code 
 3.  Run instructions (important for grading)  In your repo README, include: 
 ○  How to run the API locally (without Docker, if possible) 

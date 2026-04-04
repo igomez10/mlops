@@ -9,7 +9,7 @@ AR_IMAGE := $(GCP_REGION)-docker.pkg.dev/$(GCP_PROJECT)/mlflow/mlflow:v3.10.1-fu
 FASTAPI_IMAGE := $(GCP_REGION)-docker.pkg.dev/$(GCP_PROJECT)/fastapi/fastapi:latest
 MLFLOW_VERSION := v3.10.1-full
 
-.PHONY: build run stop clean tf-plan tf-apply push-mlflow push-fastapi redeploy-mlflow redeploy-fastapi
+.PHONY: build run stop clean tf-plan tf-apply push-mlflow push-fastapi redeploy-mlflow redeploy-fastapi run-fastapi
 
 build:
 	docker build -t $(IMAGE_NAME) .
@@ -63,3 +63,6 @@ redeploy-fastapi:
 		--region $(GCP_REGION) \
 		--project $(GCP_PROJECT) \
 		--quiet
+
+run-fastapi:
+	uvicorn server:app --host 0.0.0.0 --port 8000 --reload
