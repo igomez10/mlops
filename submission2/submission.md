@@ -1,16 +1,14 @@
 # Submission Milestone 2
 
-
 ## Deploying ML Model as a Web Service
 
 1. GitHub repository
-○  Link to your full repo, including all your code, Dockerfile, etc.  
+Link to your full repo, including all your code, Dockerfile, etc.  
 
 https://github.com/igomez10/mlops
 
-FastAPI Dockerfile: https://github.com/igomez10/mlops/blob/main/Dockerfile.fastapi
-
-MLFlow Dockerfile: We pulled and pushed the official image, so no custom Dockerfile is needed. See Makefile for details: `make push-mlflow`.
+- FastAPI Dockerfile: https://github.com/igomez10/mlops/blob/main/Dockerfile.fastapi
+- MLFlow Dockerfile: We pulled and pushed the official image, so no custom Dockerfile is needed. See Makefile for details: `make push-mlflow`.
 
 ○  Direct link(s) to the file(s) where endpoints are defined 
 
@@ -68,9 +66,13 @@ https://mlflow-34676207684.us-central1.run.app/#/experiments/467518636860402424/
 
 This is a demo model for sqft and rooms but this is just a dummy to show an example. We will migrate to other models related to our project.
 
-![image proof](endpoint_proof.png)
+![fastapiwelcome.png](fastapiwelcome.png)
+
+Example request:
+The first request will be slow as the service needs to spin up, but subsequent requests will be faster.
 
 ```bash
-curl -X POST https://fastapi-34676207684.us-central1.run.app/predict -H "Content-Type: application/json" \
-    -d '{"sqft": 1500, "rooms": 3}'
+curl -X POST https://fastapi-34676207684.us-central1.run.app/predict \
+-H "Content-Type: application/json" \
+-d '{"sqft": 1500, "rooms": 3}'
 ```
