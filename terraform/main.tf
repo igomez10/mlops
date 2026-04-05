@@ -88,7 +88,7 @@ resource "google_cloud_run_v2_service" "mlflow" {
       resources {
         startup_cpu_boost = true
         limits = {
-          memory = "4Gi"
+          memory = "2Gi"
           cpu    = "2"
         }
       }
