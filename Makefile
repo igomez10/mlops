@@ -48,6 +48,7 @@ push-mlflow:
 redeploy-mlflow:
 	gcloud run deploy mlflow \
 		--image $(AR_IMAGE) \
+		--cpu-throttling \
 		--region $(GCP_REGION) \
 		--project $(GCP_PROJECT) \
 		--quiet
@@ -60,6 +61,7 @@ push-fastapi:
 redeploy-fastapi:
 	gcloud run deploy fastapi \
 		--image $(FASTAPI_IMAGE) \
+		--cpu-throttling \
 		--region $(GCP_REGION) \
 		--project $(GCP_PROJECT) \
 		--quiet
