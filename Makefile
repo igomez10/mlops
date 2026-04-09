@@ -5,11 +5,14 @@ PORT := 5001
 
 GCP_REGION := us-central1
 GCP_PROJECT := mlops-492103
+VERTEX_ENDPOINT := linear-regression-endpoint
+VERTEX_ARTIFACT_URI := gs://$(GCP_PROJECT)-mlflow-artifacts/models/linear-regression/
+SKLEARN_IMAGE := us-docker.pkg.dev/vertex-ai/prediction/sklearn-cpu.1-3:latest
 AR_IMAGE := $(GCP_REGION)-docker.pkg.dev/$(GCP_PROJECT)/mlflow/mlflow:v3.10.1-full
 FASTAPI_IMAGE := $(GCP_REGION)-docker.pkg.dev/$(GCP_PROJECT)/fastapi/fastapi:latest
 MLFLOW_VERSION := v3.10.1-full
 
-.PHONY: build run stop clean tf-plan tf-apply push-mlflow push-fastapi redeploy-mlflow redeploy-fastapi run-fastapi
+.PHONY: build run stop clean tf-plan tf-apply push-mlflow push-fastapi redeploy-mlflow redeploy-fastapi run-fastapi vertex-upload-toy-model vertex-deploy-toy-model vertex-undeploy-toy-model
 
 build-fastapi:
 	docker build -t $(FASTAPI_IMAGE) -f Dockerfile.fastapi .
@@ -71,3 +74,33 @@ run-fastapi:
 
 start-docker-compose:
 	docker-compose up -d
+
+vertex-upload-toy-model:
+	gcloud ai models upload \
+		--region=$(GCP_REGION) \
+		--display-name=toy-linear-regression \
+		--artifact-uri=$(VERTEX_ARTIFACT_URI) \
+		--container-image-uri=$(SKLEARN_IMAGE)
+
+vertex-undeploy-toy-model:
+	DEPLOYED_MODEL_ID=$$(gcloud ai endpoints describe $(VERTEX_ENDPOINT) \
+		--region=$(GCP_REGION) \
+		--format="value(deployedModels[0].id)") && \
+	gcloud ai endpoints undeploy-model $(VERTEX_ENDPOINT) \
+		--region=$(GCP_REGION) \
+		--deployed-model-id=$$DEPLOYED_MODEL_ID
+
+vertex-deploy-toy-model:
+	MODEL_ID=$$(gcloud ai models upload \
+		--region=$(GCP_REGION) \
+		--display-name=toy-linear-regression \
+		--artifact-uri=$(VERTEX_ARTIFACT_URI) \
+		--container-image-uri=$(SKLEARN_IMAGE) \
+		--format="value(model)") && \
+	gcloud ai endpoints deploy-model $(VERTEX_ENDPOINT) \
+		--region=$(GCP_REGION) \
+		--model=$$MODEL_ID \
+		--display-name=toy-linear-regression \
+		--machine-type=n1-standard-2 \
+		--min-replica-count=1 \
+		--max-replica-count=1
