@@ -1,89 +1,156 @@
-# Submission Milestone 2
+# MLOps
 
-## Deploying ML Model as a Web Service
+End-to-end ML platform on GCP using MLflow for experiment tracking and FastAPI for model serving, with infrastructure managed by Terraform.
 
-1. GitHub repository
+## Architecture
 
-https://github.com/igomez10/mlops
-
-- FastAPI Dockerfile: https://github.com/igomez10/mlops/blob/main/Dockerfile.fastapi
-- MLflow Dockerfile: We pulled and pushed the official image, so no custom Dockerfile is needed. See Makefile for details: `make push-mlflow`.
-
-- Direct link(s) to the file(s) where endpoints are defined
-
-The FastAPI endpoints are defined in `server.py`:
-https://github.com/igomez10/mlops/blob/main/server.py
-
-2. Docker image proof
-
-- Screenshot showing your published image in the registry:
-
-![FastAPI image in registry](./submission2/proof_image_fastapi.png)
-
-![MLflow image in registry](./submission2/proof_image_mlflow.png)
-
-- Image name must match what is used in your code
-
-In `docker-compose.yml`, we reference the FastAPI image as `us-central1-docker.pkg.dev/mlops-492103/fastapi/fastapi:latest`, which matches the image we pushed to the registry.
-
-3. Run instructions (important for grading)
-
-- How to run the API locally (without Docker, if possible)
-
-```bash
-MLFLOW_TRACKING_URI=https://mlflow-34676207684.us-central1.run.app MLFLOW_MODEL_URI=runs:/6736c234459f44769f3475477b730f89/model make run-fastapi
+```
+┌─────────────────────────────────────────────────────┐
+│                   GCP (us-central1)                 │
+│                                                     │
+│  ┌──────────────┐        ┌──────────────────────┐   │
+│  │  Cloud Run   │        │      Cloud Run       │   │
+│  │   MLflow     │◄───────│      FastAPI         │   │
+│  │  (tracking)  │        │   (model serving)    │   │
+│  └──────┬───────┘        └──────────────────────┘   │
+│         │                                           │
+│  ┌──────┴───────┐  ┌──────────────────────────┐     │
+│  │  GCS Bucket  │  │  Artifact Registry       │     │
+│  │  (artifacts) │  │  mlflow / fastapi images │     │
+│  └──────────────┘  └──────────────────────────┘     │
+│                                                     │
+│  ┌──────────────────────────────────────────────┐   │
+│  │  Vertex AI — linear-regression-endpoint      │   │
+│  └──────────────────────────────────────────────┘   │
+└─────────────────────────────────────────────────────┘
 ```
 
-- How to build and run the Docker container:
+## Services
 
-```bash
-make build-fastapi
-make start-docker-compose
+| Service | URL |
+|---------|-----|
+| MLflow  | https://mlflow-34676207684.us-central1.run.app |
+| FastAPI | https://fastapi-34676207684.us-central1.run.app |
+
+## Repository Layout
+
+```
+.
+├── server.py              # FastAPI application
+├── Dockerfile.fastapi     # FastAPI container image
+├── docker-compose.yml     # Local dev stack (MLflow + FastAPI)
+├── requirements.txt       # Python dependencies
+├── Makefile               # All common operations
+├── notebook.ipynb         # Experimentation notebook
+└── terraform/
+    ├── main.tf            # Cloud Run, GCS, Artifact Registry
+    ├── vertex_ai.tf       # Vertex AI endpoint
+    ├── monitoring.tf      # Alerts and billing budget
+    ├── outputs.tf
+    ├── variables.tf
+    └── versions.tf
 ```
 
-## MLflow Team Server Setup on GCP
+## FastAPI Endpoints
 
-For this setup we used terraform to provision the necessary infrastructure on GCP, including a Cloud Run service for MLflow and a Cloud Storage bucket for artifact storage.
-The MLflow server is configured to use the Cloud Storage bucket as its backend store.
-The first request will be slow as the service needs to spin up, but subsequent requests will be faster.
+Defined in `server.py`.
 
-We opted for Cloud Run because we can define the entire infrastructure, including the configuration,
-in our repo and embrace LLMs for management. We can also integrate alerts/monitoring etc as
-first class citizens in our setup. We can also overprovision our service during usage and scale to 0 when we don't use.
-When working with the VM initially we noticed that the VM suggested was not powerful enough to run a smooth setup and
-docker commands will often hang.
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/` | Welcome message |
+| GET | `/health` | Health check |
+| POST | `/predict` | Run model inference |
+| POST | `/add_query_parameters` | Add two numbers (query params) |
+| POST | `/add_body_parameters` | Add two numbers (body) |
 
-We expect this extra effort in the second milestone will pay its dividends in the next milestones as
-management and adding more services will happen in Cloud Run too.
-
-To comply with any milestone requirements we also setup a VM with MLflow here http://136.119.90.5:5000/
-But we expect to use Cloud Run for the next milestones as we can integrate monitoring/alerting and forget about
-infrastructure management and running daily operations.
-
-MLflow server running on Cloud Run:
-https://mlflow-34676207684.us-central1.run.app/#/experiments/467518636860402424/runs/6736c234459f44769f3475477b730f89
-
-![MLflow Runs](./submission2/MLflow_runs_v2.png)
-
-![MLflow Example Run](./submission2/MLflow_example_run.png)
-
-### Example of how to call the FastAPI endpoint:
-
-This is a demo model for sqft and rooms but this is just a dummy to show an example. We will migrate to other models related to our project.
-
-![FastAPI welcome page](./submission2/fastapiwelcome.png)
-
-Example request:
-The first request will be slow as the service needs to spin up, but subsequent requests will be faster.
+### `/predict` request/response
 
 ```bash
 curl -X POST https://fastapi-34676207684.us-central1.run.app/predict \
--H "Content-Type: application/json" \
--d '{"sqft": 1500, "rooms": 3}'
+  -H "Content-Type: application/json" \
+  -d '{"sqft": 1500, "rooms": 3}'
 ```
-
-Expected output:
 
 ```json
 {"prediction": 1234}
 ```
+
+The model is loaded from MLflow at startup via `MLFLOW_MODEL_URI`. Cold starts are slow; subsequent requests are fast.
+
+## Running Locally
+
+### Without Docker
+
+```bash
+MLFLOW_TRACKING_URI=https://mlflow-34676207684.us-central1.run.app \
+MLFLOW_MODEL_URI=runs:/6736c234459f44769f3475477b730f89/model \
+make run-fastapi
+```
+
+### With Docker Compose (MLflow + FastAPI)
+
+```bash
+make build-fastapi
+MLFLOW_MODEL_URI=runs:/6736c234459f44769f3475477b730f89/model \
+make start-docker-compose
+```
+
+MLflow will be available at http://localhost:5001 and FastAPI at http://localhost:8000.
+
+## Infrastructure (Terraform)
+
+All GCP resources are defined in `terraform/` and managed with:
+
+```bash
+make tf-plan    # preview changes
+make tf-apply   # apply changes
+```
+
+### Resources
+
+| Resource | Name |
+|----------|------|
+| Artifact Registry | `mlflow`, `fastapi` (Docker) |
+| GCS Bucket | `mlops-492103-mlflow-artifacts` (model artifacts) |
+| GCS Bucket | `mlops-492103-mlflow-db` (MLflow backend store via SQLite) |
+| Cloud Run | `mlflow` (2 CPU, 2Gi RAM, max 1 instance) |
+| Cloud Run | `fastapi` (1 CPU, 512Mi RAM) |
+| Vertex AI Endpoint | `linear-regression-endpoint` |
+
+Both Cloud Run services use CPU throttling and scale to zero when idle.
+
+## Docker Images
+
+Images are stored in GCP Artifact Registry (`us-central1-docker.pkg.dev/mlops-492103/`).
+
+```bash
+# Build and push FastAPI image
+make push-fastapi
+
+# Pull official MLflow image and push to registry
+make push-mlflow
+
+# Redeploy services on Cloud Run
+make redeploy-fastapi
+make redeploy-mlflow
+```
+
+## Vertex AI
+
+A sklearn linear regression model can be uploaded and deployed to Vertex AI:
+
+```bash
+make vertex-deploy-toy-model    # upload model artifact and deploy to endpoint
+make vertex-undeploy-toy-model  # remove deployed model from endpoint
+```
+
+Model artifact is read from `gs://mlops-492103-mlflow-artifacts/models/linear-regression/`.
+
+## Monitoring & Alerts
+
+Defined in `terraform/monitoring.tf`. Alerts fire to the configured email on:
+
+- **5xx errors** — any Cloud Run 5xx response in the last 60s
+- **Log errors** — `severity >= ERROR` in Cloud Run logs (rate-limited to 1 alert per 5 min)
+- **High CPU** — p99 CPU utilization > 80% for 2 minutes on any Cloud Run service
+- **Billing budget** — alerts at 50% and 100% of the $50/month budget
