@@ -4,10 +4,10 @@
 import os
 from contextlib import asynccontextmanager
 
+import fastapi
 import mlflow
 import mlflow.pyfunc
 import pandas as pd
-import fastapi
 
 # from PIL import Image
 # from transformers import pipeline
@@ -94,11 +94,40 @@ class PredictResponse(BaseModel):
     prediction: int
 
 
-@app.post("/predict")
+@app.post("/predict_price_sqft")
 def predict(inputdata: PredictRequest) -> PredictResponse:
     data = pd.DataFrame([{"sqft": inputdata.sqft, "rooms": inputdata.rooms}])
     result = app_state["model"].predict(data)
     return PredictResponse(prediction=int(result[0]))
+
+
+class CreatePostsRequest(BaseModel):
+    images: list[bytes]
+    user_id: int
+    dry_run: bool = False
+    platform: str = "ebay"
+    user_estimated_price: int | None = None
+
+    def validate_request(self) -> bool:
+        if self.platform not in ["ebay", "craigslist"]:
+            raise ValueError("Invalid platform. Must be 'ebay' or 'craigslist'.")
+        if self.user_estimated_price is not None and self.user_estimated_price < 0:
+            raise ValueError("Estimated price must be non-negative.")
+        return True
+
+
+@app.post("/create_posts")
+def create_posts(req: CreatePostsRequest) -> dict:
+    try:
+        req.validate_request()
+    except ValueError as e:
+        return {"error": str(e)}
+
+    # Here you would add logic to process the images and create posts on the specified platform.
+    # For this example, we'll just return a success message.
+    return {
+        "message": f"Posts created successfully for user {req.user_id} on {req.platform}."
+    }
 
 
 def main() -> None:
