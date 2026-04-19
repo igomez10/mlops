@@ -80,6 +80,18 @@ def test_create_valid_post_request():
     assert valid_request.validate_request() is True
 
 
+def test_create_post_invalid_platform():
+    request = CreatePostsRequest(
+        dry_run=False,
+        platform="amazon",
+        user_estimated_price=10000,
+        images=[b"abc"],
+        user_id=1,
+    )
+    with pytest.raises(ValueError, match="Invalid platform: amazon"):
+        request.validate_request()
+
+
 def test_create_invalid_post_request():
     invalid_request = CreatePostsRequest(
         dry_run=True,
@@ -90,6 +102,7 @@ def test_create_invalid_post_request():
     )
 
     # Missing required field 'platform'
+    invalid_request.platform = None
     with pytest.raises(ValueError, match="Missing required field: platform"):
         invalid_request.validate_request()
 

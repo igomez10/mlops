@@ -105,12 +105,14 @@ class CreatePostsRequest(BaseModel):
     images: list[bytes]
     user_id: int
     dry_run: bool = False
-    platform: str = "ebay"
+    platform: str | None = "ebay"
     user_estimated_price: int | None = None
 
     def validate_request(self) -> bool:
+        if not self.platform:
+            raise ValueError("Missing required field: platform")
         if self.platform not in ["ebay", "craigslist"]:
-            raise ValueError("Invalid platform. Must be 'ebay' or 'craigslist'.")
+            raise ValueError(f"Invalid platform: {self.platform}")
         if self.user_estimated_price is not None and self.user_estimated_price < 0:
             raise ValueError("Estimated price must be non-negative.")
         return True
