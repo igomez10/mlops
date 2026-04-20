@@ -117,6 +117,7 @@ class CreatePostsRequest(BaseModel):
             raise ValueError("Estimated price must be non-negative.")
         return True
 
+database = []
 
 @app.post("/create_posts")
 def create_posts(req: CreatePostsRequest) -> dict:
@@ -124,13 +125,21 @@ def create_posts(req: CreatePostsRequest) -> dict:
         req.validate_request()
     except ValueError as e:
         return {"error": str(e)}
-
+    # TODO 1 Upload assets to storage bucket
+    # TODO 2 create new entry in database referencing link in bucket
+    # TODO 3 call llm provider with image + prompt
+    # TODO 4 update db with generated fields
+    # TODO 5 Call Ebay endpoint
+    database.append(req)
     # Here you would add logic to process the images and create posts on the specified platform.
     # For this example, we'll just return a success message.
     return {
         "message": f"Posts created successfully for user {req.user_id} on {req.platform}."
     }
 
+@app.get("/get_posts")
+def get_posts():
+    return database
 
 def main() -> None:
     print("Hello from mlops!")
