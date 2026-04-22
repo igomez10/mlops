@@ -30,3 +30,28 @@ variable "alert_email" {
   description = "Email address to receive monitoring alerts."
   type        = string
 }
+
+# Optional: GitHub → Cloud Build trigger (install the Cloud Build GitHub App first).
+variable "github_ui_build_enabled" {
+  description = "If true, create a Cloud Build trigger to run cloudbuild.yaml on push to the given branch."
+  type        = bool
+  default     = false
+}
+
+variable "github_ui_owner" {
+  description = "GitHub org or user (for the UI deploy trigger only)."
+  type        = string
+  default     = ""
+}
+
+variable "github_ui_repo" {
+  description = "GitHub repository name (for the UI deploy trigger only)."
+  type        = string
+  default     = ""
+}
+
+variable "github_ui_branch" {
+  description = "Regex for branch, e.g. ^main$ (for the UI deploy trigger only)."
+  type        = string
+  default     = "^main$"
+}

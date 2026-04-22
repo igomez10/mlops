@@ -1,0 +1,68 @@
+# Build & deploy the React (Vite) UI to Cloud Run. Resolves the public FastAPI URL at
+# build time and sets VITE_API_BASE_URL so the browser calls the API on Cloud Run.
+#
+# Prerequisite: the "fastapi" Cloud Run service exists in the same project/region.
+#
+# One-off: gcloud builds submit --config=cloudbuild.yaml --project=PROJECT_ID
+# For GitHub: add a trigger pointing at this file (see terraform ui_cloudbuild_trigger.tf).
+#
+# Required IAM for default Cloud Build SA (${PROJECT_NUM}@cloudbuild.gserviceaccount.com):
+# roles/run.admin, roles/artifactregistry.writer, roles/iam.serviceAccountUser (see terraform).
+#
+options:
+  logging: CLOUD_LOGGING_ONLY
+  automapSubstitutions: true
+
+substitutions:
+  _REGION: us-central1
+
+steps:
+  - id: resolve-fastapi-url
+    name: gcr.io/google.com/cloudsdks/gcloud:slim
+    entrypoint: bash
+    args:
+      - -c
+      - |
+        set -euo pipefail
+        gcloud run services describe fastapi \
+          --region="${_REGION}" \
+          --project="${PROJECT_ID}" \
+          --format='value(status.url)' | tr -d '\n' > /workspace/fastapi_base_url.txt
+        test -s /workspace/fastapi_base_url.txt
+        echo "VITE_API_BASE_URL=$$(cat /workspace/fastapi_base_url.txt)"
+
+  - id: build-and-push
+    name: gcr.io/cloud-builders/docker
+    entrypoint: bash
+    args:
+      - -c
+      - |
+        set -euo pipefail
+        VITE=$$(cat /workspace/fastapi_base_url.txt)
+        IMAGE="${_REGION}-docker.pkg.dev/${PROJECT_ID}/ui/ui"
+        docker build -f frontend/Dockerfile \
+          --build-arg "VITE_API_BASE_URL=$${VITE}" \
+          -t "$${IMAGE}:latest" \
+          frontend
+        docker push "$${IMAGE}:latest"
+    waitFor:
+      - resolve-fastapi-url
+
+  - id: deploy-ui
+    name: gcr.io/google.com/cloudsdks/gcloud:slim
+    entrypoint: bash
+    args:
+      - -c
+      - |
+        set -euo pipefail
+        gcloud run deploy ui \
+          --image="${_REGION}-docker.pkg.dev/${PROJECT_ID}/ui/ui:latest" \
+          --region="${_REGION}" \
+          --project="${PROJECT_ID}" \
+          --platform=managed \
+          --allow-unauthenticated \
+          --port=8080 \
+          --min-instances=0 \
+          --max-instances=2
+    waitFor:
+      - build-and-push
