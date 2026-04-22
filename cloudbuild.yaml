@@ -1,36 +1,20 @@
-# Cloud Build: build the React (Vite) UI, push to Artifact Registry (ui/ui), deploy Cloud Run "ui".
+# Build Dockerfile.fastapi (Vite + FastAPI) → Artifact Registry `fastapi/fastapi` → deploy Cloud Run `fastapi`.
+# Same image serves the API and the static UI (no separate UI service).
 #
-# Bakes VITE_API_BASE_URL from the public "fastapi" service URL in the same project/region.
+# gcloud builds submit --config=cloudbuild.yaml --project=PROJECT_ID
+# Trigger: set github_build_* in Terraform (github_build_trigger.tf); connect GitHub in Cloud Build first.
 #
-# Prerequisites: "fastapi" Cloud Run; Artifact Registry "ui" repo (terraform). IAM on ui.tf for Cloud Build SA.
-#
-# Manual:  gcloud builds submit --config=cloudbuild.yaml --project=PROJECT_ID
-# From Git: enable Terraform trigger (github_ui_trigger.tf) after connecting the repo in Cloud Build.
+# IAM: see terraform cloudbuild_iam.tf (Cloud Build service account on the project).
 #
 timeout: 1200s
 options:
   logging: CLOUD_LOGGING_ONLY
   automapSubstitutions: true
-  # Use E2_HIGHCPU_8 to speed up npm ci inside the Docker build if needed (adds build cost)
 
 substitutions:
   _REGION: us-central1
 
 steps:
-  - id: resolve-fastapi-url
-    name: gcr.io/google.com/cloudsdks/gcloud:slim
-    entrypoint: bash
-    args:
-      - -c
-      - |
-        set -euo pipefail
-        gcloud run services describe fastapi \
-          --region="${_REGION}" \
-          --project="${PROJECT_ID}" \
-          --format='value(status.url)' | tr -d '\n' > /workspace/fastapi_base_url.txt
-        test -s /workspace/fastapi_base_url.txt
-        echo "VITE_API_BASE_URL=$$(cat /workspace/fastapi_base_url.txt)"
-
   - id: auth-docker
     name: gcr.io/google.com/cloudsdks/gcloud:slim
     entrypoint: bash
@@ -39,8 +23,6 @@ steps:
       - |
         set -euo pipefail
         gcloud auth configure-docker "${_REGION}-docker.pkg.dev" --quiet
-    waitFor:
-      - resolve-fastapi-url
 
   - id: build-and-push
     name: gcr.io/cloud-builders/docker
@@ -49,45 +31,36 @@ steps:
       - -c
       - |
         set -euo pipefail
-        VITE=$$(cat /workspace/fastapi_base_url.txt)
-        IMAGE="${_REGION}-docker.pkg.dev/${PROJECT_ID}/ui/ui"
-        # GitHub trigger sets $$COMMIT_SHA; gcloud builds submit does not
+        IMAGE="${_REGION}-docker.pkg.dev/${PROJECT_ID}/fastapi/fastapi"
         if [ -n "$$COMMIT_SHA" ]; then
-          docker build -f frontend/Dockerfile \
-            --build-arg "VITE_API_BASE_URL=$$VITE" \
-            -t "$${IMAGE}:$$COMMIT_SHA" \
-            -t "$${IMAGE}:latest" \
-            frontend
+          docker build -f Dockerfile.fastapi -t "$${IMAGE}:$$COMMIT_SHA" -t "$${IMAGE}:latest" .
           docker push "$${IMAGE}:$$COMMIT_SHA"
           docker push "$${IMAGE}:latest"
-          echo -n "$$COMMIT_SHA" > /workspace/ui_image_tag.txt
+          echo -n "$$COMMIT_SHA" > /workspace/image_tag.txt
         else
-          docker build -f frontend/Dockerfile \
-            --build-arg "VITE_API_BASE_URL=$$VITE" \
-            -t "$${IMAGE}:latest" \
-            frontend
+          docker build -f Dockerfile.fastapi -t "$${IMAGE}:latest" .
           docker push "$${IMAGE}:latest"
-          echo -n "latest" > /workspace/ui_image_tag.txt
+          echo -n "latest" > /workspace/image_tag.txt
         fi
     waitFor:
       - auth-docker
 
-  - id: deploy-ui
+  - id: deploy-fastapi
     name: gcr.io/google.com/cloudsdks/gcloud:slim
     entrypoint: bash
     args:
       - -c
       - |
         set -euo pipefail
-        IMAGE_BASE="${_REGION}-docker.pkg.dev/${PROJECT_ID}/ui/ui"
-        TAG=$$(cat /workspace/ui_image_tag.txt)
-        gcloud run deploy ui \
+        IMAGE_BASE="${_REGION}-docker.pkg.dev/${PROJECT_ID}/fastapi/fastapi"
+        TAG=$$(cat /workspace/image_tag.txt)
+        gcloud run deploy fastapi \
           --image="$${IMAGE_BASE}:$${TAG}" \
           --region="${_REGION}" \
           --project="${PROJECT_ID}" \
           --platform=managed \
           --allow-unauthenticated \
-          --port=8080 \
+          --port=8000 \
           --min-instances=0 \
           --max-instances=2
     waitFor:

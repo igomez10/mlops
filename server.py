@@ -9,10 +9,12 @@ import re
 import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime
+from pathlib import Path
 import fastapi
 from fastapi import Depends, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, model_validator
 from pymongo import MongoClient
 from starlette.requests import Request
@@ -153,11 +155,6 @@ def http_get_post_image(
         media_type=media_type,
         headers={"Cache-Control": "private, max-age=300"},
     )
-
-
-@app.get("/")
-def hello() -> dict:
-    return {"message": "Welcome to mlops fastapi!"}
 
 
 @app.get("/usfca")
@@ -512,6 +509,28 @@ def create_posts(req: CreatePostsRequest) -> dict:
 @app.get("/get_posts")
 def get_posts():
     return database
+
+
+def _configure_static_ui() -> None:
+    """After production Docker build, ``static/index.html`` exists. Otherwise JSON welcome at ``/``."""
+    static_root = Path(
+        os.environ.get("STATIC_DIR", str(Path(__file__).resolve().parent / "static"))
+    )
+    if (static_root / "index.html").is_file():
+        app.mount(
+            "/",
+            StaticFiles(directory=str(static_root), html=True),
+            name="static",
+        )
+    else:
+
+        @app.get("/")
+        def root() -> dict:
+            return {"message": "Welcome to mlops fastapi!"}
+
+
+_configure_static_ui()
+
 
 def main() -> None:
     print("Hello from mlops!")

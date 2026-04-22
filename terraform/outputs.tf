@@ -4,7 +4,7 @@ output "mlflow_url" {
 }
 
 output "fastapi_url" {
-  description = "FastAPI service URL"
+  description = "App URL: FastAPI + static React UI (same service)"
   value       = google_cloud_run_v2_service.fastapi.uri
 }
 
@@ -13,7 +13,12 @@ output "gcs_images_bucket" {
   value       = google_storage_bucket.mlops_images.name
 }
 
-output "ui_url" {
-  description = "eBay Operator UI (static React) on Cloud Run"
-  value       = google_cloud_run_v2_service.ui.uri
+output "app_artifact_image" {
+  description = "Artifact Registry image for the combined API + UI container"
+  value       = "${var.region}-docker.pkg.dev/${var.project_id}/fastapi/fastapi"
+}
+
+output "cloudbuild_manual" {
+  description = "From repo root: one-off build, push, and deploy the combined image to Cloud Run (fastapi)"
+  value       = "gcloud builds submit --config=cloudbuild.yaml --project=${var.project_id}"
 }

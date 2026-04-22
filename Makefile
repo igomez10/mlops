@@ -25,7 +25,7 @@ AR_IMAGE := $(GCP_REGION)-docker.pkg.dev/$(GCP_PROJECT)/mlflow/mlflow:v3.10.1-fu
 FASTAPI_IMAGE := $(GCP_REGION)-docker.pkg.dev/$(GCP_PROJECT)/fastapi/fastapi:latest
 MLFLOW_VERSION := v3.10.1-full
 
-.PHONY: build run stop clean tf-plan tf-apply gcp-build-ui push-mlflow push-fastapi redeploy-mlflow redeploy-fastapi run-fastapi compose-up-dev dev-server start-docker-compose frontend-install frontend-dev ui frontend-e2e vertex-upload-toy-model vertex-deploy-toy-model vertex-undeploy-toy-model
+.PHONY: build run stop clean tf-plan tf-apply gcp-build-app push-mlflow push-fastapi redeploy-mlflow redeploy-fastapi run-fastapi compose-up-dev dev-server start-docker-compose frontend-install frontend-dev ui frontend-e2e vertex-upload-toy-model vertex-deploy-toy-model vertex-undeploy-toy-model
 
 build-fastapi:
 	docker build -t $(FASTAPI_IMAGE) -f Dockerfile.fastapi .
@@ -54,8 +54,8 @@ tf-plan:
 tf-apply:
 	cd terraform && terraform apply -auto-approve
 
-# Build & deploy UI to Cloud Run (requires gcloud, cloudbuild.yaml, and existing "fastapi" service)
-gcp-build-ui:
+# Build & deploy combined FastAPI + static UI to Cloud Run (gcloud, cloudbuild.yaml)
+gcp-build-app:
 	gcloud builds submit --config=cloudbuild.yaml --project $(GCP_PROJECT)
 
 

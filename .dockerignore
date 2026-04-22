@@ -1,0 +1,17 @@
+# Context for: docker build -f Dockerfile.fastapi .
+.git
+.github
+.venv
+__pycache__
+*.pyc
+terraform
+logs
+**/.pytest_cache
+frontend/node_modules
+frontend/dist
+frontend/e2e
+frontend/test-results
+frontend/playwright-report
+**/.env
+**/.env.*
+!frontend/.env.example

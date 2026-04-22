@@ -3,6 +3,16 @@
 # Provider configuration is in versions.tf.
 # Variables are declared in variables.tf and set in terraform.tfvars.
 
+locals {
+  # CORS: local Vite (5173/5174). Deployed app is same origin as the API, so no extra origin.
+  fastapi_cors_origins = join(",", [
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+    "http://localhost:5174",
+    "http://127.0.0.1:5174",
+  ])
+}
+
 resource "google_storage_bucket" "terraform_state" {
   name          = "${var.project_id}-terraform-state"
   location      = var.region
@@ -192,7 +202,6 @@ resource "google_cloud_run_v2_service" "fastapi" {
 
       env {
         name  = "CORS_ORIGINS"
-        # Browser origins: local Vite + deployed UI (see locals.fastapi_cors_origins in ui.tf)
         value = local.fastapi_cors_origins
       }
 

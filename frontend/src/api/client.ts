@@ -1,13 +1,15 @@
 import type { Post } from '../types/post'
 
 function apiBase(): string {
-  const base = import.meta.env.VITE_API_BASE_URL
-  if (!base || typeof base !== 'string') {
-    throw new Error(
-      'VITE_API_BASE_URL is not set. Copy .env.example to .env and set the API URL.',
-    )
+  const raw = import.meta.env.VITE_API_BASE_URL
+  // production Docker / same host: VITE is empty (same origin)
+  if (raw === undefined || raw === null) {
+    return ''
   }
-  return base.replace(/\/$/, '')
+  if (typeof raw !== 'string') {
+    throw new Error('VITE_API_BASE_URL must be a string if set')
+  }
+  return raw.replace(/\/$/, '')
 }
 
 async function readError(res: Response): Promise<string> {

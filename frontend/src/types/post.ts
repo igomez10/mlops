@@ -17,6 +17,6 @@ export type Post = {
   description?: string
   deleted_at: string | null
   listings: Listing[]
-  /** Absolute URLs to load images through the API (private GCS behind GET /images/...). */
+  /** Image URLs (same origin as the app when the UI is served from FastAPI). */
   image_urls: string[]
 }

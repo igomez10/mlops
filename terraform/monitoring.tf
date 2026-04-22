@@ -53,7 +53,7 @@ resource "google_monitoring_alert_policy" "cloud_run_5xx" {
   conditions {
     display_name = "5xx response rate"
     condition_threshold {
-      filter     = <<-EOT
+      filter          = <<-EOT
         resource.type = "cloud_run_revision"
         AND metric.type = "run.googleapis.com/request_count"
         AND metric.labels.response_code_class = "5xx"
@@ -105,7 +105,7 @@ resource "google_monitoring_alert_policy" "cloud_run_cpu" {
   conditions {
     display_name = "CPU utilization > 80%"
     condition_threshold {
-      filter     = <<-EOT
+      filter          = <<-EOT
         resource.type = "cloud_run_revision"
         AND metric.type = "run.googleapis.com/container/cpu/utilizations"
       EOT
