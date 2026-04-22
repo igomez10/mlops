@@ -58,3 +58,16 @@ class GoogleCloudStorage:
     def delete(self, object_name: str) -> None:
         blob = self._bucket.blob(object_name.lstrip("/"))
         blob.delete()
+
+
+def public_https_url_for_gcs_object(bucket: str, object_name: str) -> str:
+    """
+    Public URL for the object, suitable for ``<img src>`` (bucket must allow public read).
+
+    ``object_name`` is the key path inside the bucket (e.g. ``posts/<id>/<file>.png``).
+    """
+    from urllib.parse import quote
+
+    clean = object_name.lstrip("/")
+    encoded_path = "/".join(quote(part, safe="") for part in clean.split("/") if part)
+    return f"https://storage.googleapis.com/{quote(bucket, safe='')}/{encoded_path}"

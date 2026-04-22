@@ -8,8 +8,8 @@ from pymongo import ASCENDING
 from pymongo.collection import Collection
 from pymongo.errors import DuplicateKeyError
 
-from pkg.posts.models import Post
-from pkg.posts.repository import _normalize_name, _utc_now
+from pkg.posts.models import Listing, Post
+from pkg.posts.repository import _normalize_name, _synthetic_listings_for_new_post, _utc_now
 
 
 def _ensure_utc(dt: datetime) -> datetime:
@@ -18,14 +18,46 @@ def _ensure_utc(dt: datetime) -> datetime:
     return dt.astimezone(timezone.utc)
 
 
+def _raw_listing_to_listing(raw: dict[str, Any]) -> Listing:
+    """Load listing; support legacy docs that only stored ``title``."""
+    if "title" in raw and "marketplace_url" not in raw:
+        return Listing(
+            id=raw["id"],
+            marketplace_url="",
+            image_url="",
+            created_at=_ensure_utc(raw["created_at"]),
+            status="legacy",
+            description=(raw.get("title") or "").strip(),
+        )
+    return Listing(
+        id=raw["id"],
+        marketplace_url=str(raw.get("marketplace_url") or ""),
+        image_url=str(raw.get("image_url") or ""),
+        created_at=_ensure_utc(raw["created_at"]),
+        status=str(raw.get("status") or ""),
+        description=str(raw.get("description") or ""),
+    )
+
+
 def _doc_to_post(doc: dict[str, Any]) -> Post:
     raw_deleted = doc.get("deleted_at")
+    raw_listings = doc.get("listings")
+    if raw_listings is None:
+        listings: list[Listing] = []
+    else:
+        listings = [_raw_listing_to_listing(x) for x in raw_listings]
+    raw_images = doc.get("image_urls")
+    image_urls = [str(u) for u in raw_images] if raw_images else []
+    raw_desc = doc.get("description")
     return Post(
         id=doc["_id"],
         name=doc["name"],
         created_at=_ensure_utc(doc["created_at"]),
         updated_at=_ensure_utc(doc["updated_at"]),
         deleted_at=_ensure_utc(raw_deleted) if raw_deleted is not None else None,
+        description=str(raw_desc) if raw_desc is not None else "",
+        listings=listings,
+        image_urls=image_urls,
     )
 
 
@@ -66,16 +98,41 @@ class MongoPostRepository:
         cursor = self._coll.find(query).sort("created_at", ASCENDING)
         return [_doc_to_post(doc) for doc in cursor]
 
-    def create(self, name: str) -> Post:
+    def create(
+        self,
+        name: str,
+        *,
+        description: str = "",
+        post_id: str | None = None,
+        image_urls: list[str] | None = None,
+    ) -> Post:
         key = _normalize_name(name)
+        urls = list(image_urls) if image_urls is not None else []
         now = _utc_now()
-        post_id = str(uuid.uuid4())
+        pid = post_id or str(uuid.uuid4())
+        desc = description.strip() if description else ""
+        list_caption = desc or key
+        listings = _synthetic_listings_for_new_post(list_caption, urls, now)
+        raw_listings = [
+            {
+                "id": L.id,
+                "marketplace_url": L.marketplace_url,
+                "image_url": L.image_url,
+                "created_at": L.created_at,
+                "status": L.status,
+                "description": L.description,
+            }
+            for L in listings
+        ]
         doc = {
-            "_id": post_id,
+            "_id": pid,
             "name": key,
             "created_at": now,
             "updated_at": now,
             "deleted_at": None,
+            "description": desc,
+            "listings": raw_listings,
+            "image_urls": urls,
         }
         try:
             self._coll.insert_one(doc)
@@ -83,17 +140,31 @@ class MongoPostRepository:
             raise ValueError(f"a post with name {key!r} already exists") from exc
         return _doc_to_post(doc)
 
-    def update(self, post_id: str, *, name: str) -> Post | None:
-        new_key = _normalize_name(name)
+    def update(
+        self,
+        post_id: str,
+        *,
+        name: str | None = None,
+        description: str | None = None,
+    ) -> Post | None:
         if self._coll.find_one({"_id": post_id, "deleted_at": None}) is None:
             return None
+        if name is None and description is None:
+            raise ValueError("at least one of name or description is required")
+        to_set: dict[str, object] = {"updated_at": _utc_now()}
+        if name is not None:
+            to_set["name"] = _normalize_name(name)
+        if description is not None:
+            to_set["description"] = description.strip()
         try:
             res = self._coll.update_one(
                 {"_id": post_id, "deleted_at": None},
-                {"$set": {"name": new_key, "updated_at": _utc_now()}},
+                {"$set": to_set},
             )
         except DuplicateKeyError as exc:
-            raise ValueError(f"a post with name {new_key!r} already exists") from exc
+            raise ValueError(
+                f"a post with name {to_set.get('name', '')!r} already exists"
+            ) from exc
         if res.matched_count == 0:
             return None
         doc = self._coll.find_one({"_id": post_id})

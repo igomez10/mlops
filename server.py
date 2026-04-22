@@ -3,20 +3,21 @@ from __future__ import annotations
 # import io
 # import torch
 # import requests
+import mimetypes
 import os
+import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime
-from typing import Annotated
-
 import fastapi
-from fastapi import Depends, HTTPException
+from fastapi import Depends, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel, Field, model_validator
 from pymongo import MongoClient
+from starlette.requests import Request
 
 from pkg import CloudSettings, FirestoreMongoDatabase, GeminiClient, GoogleCloudStorage
+from pkg.gcs import public_https_url_for_gcs_object
 from pkg.posts import InMemoryPostRepository, MongoPostRepository, PostRepository
-from pkg.posts.models import Post
 
 # from PIL import Image
 # from transformers import pipeline
@@ -44,6 +45,12 @@ async def lifespan(app: fastapi.FastAPI):
         )
     else:
         app_state["post_repository"] = InMemoryPostRepository()
+    if settings.gcs_images_bucket:
+        app_state["images_storage"] = GoogleCloudStorage(
+            settings.gcs_images_bucket,
+        )
+    else:
+        app_state["images_storage"] = None
     yield
     mongo = app_state.pop("mongo_client", None)
     app_state.clear()
@@ -53,6 +60,10 @@ async def lifespan(app: fastapi.FastAPI):
 
 def get_post_repo() -> PostRepository:
     return app_state["post_repository"]
+
+
+def get_images_storage() -> GoogleCloudStorage | None:
+    return app_state.get("images_storage")
 
 
 app = fastapi.FastAPI(lifespan=lifespan)
@@ -73,6 +84,16 @@ app.add_middleware(
     allow_methods=["GET", "POST", "PATCH", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["*"],
 )
+
+if os.environ.get("E2E_TEST") == "1":
+
+    @app.post("/__e2e__/reset-posts")
+    def e2e_reset_posts() -> dict:
+        """In-memory only: new repository so Playwright tests start from an empty list."""
+        if app_state.get("mongo_client") is not None:
+            return {"ok": False, "reason": "not supported with MongoDB"}
+        app_state["post_repository"] = InMemoryPostRepository()
+        return {"ok": True}
 
 
 @app.get("/health")
@@ -138,35 +159,24 @@ def predict(inputdata: PredictRequest) -> PredictResponse:
     return PredictResponse(prediction=int(prediction))
 
 
-class CreatePostRequest(BaseModel):
-    name: str
-
-
 class UpdatePostRequest(BaseModel):
-    id: str
-    name: str
-
-
-class GetPostRequest(BaseModel):
-    id: str | None = None
     name: str | None = None
-    include_deleted: bool = False
+    description: str | None = None
 
     @model_validator(mode="after")
-    def exactly_one_identifier(self) -> GetPostRequest:
-        has_id = self.id is not None
-        has_name = self.name is not None
-        if has_id == has_name:
-            raise ValueError("exactly one of id or name must be provided")
+    def at_least_one_field(self) -> "UpdatePostRequest":
+        if self.name is None and self.description is None:
+            raise ValueError("at least one of name or description is required")
         return self
 
 
-class ListPostRequest(BaseModel):
-    include_deleted: bool = False
-
-
-class DeletePostRequest(BaseModel):
+class ListingResponse(BaseModel):
     id: str
+    marketplace_url: str
+    image_url: str
+    created_at: datetime
+    status: str
+    description: str
 
 
 class PostResponse(BaseModel):
@@ -174,7 +184,10 @@ class PostResponse(BaseModel):
     name: str
     created_at: datetime
     updated_at: datetime
+    description: str = ""
     deleted_at: datetime | None = None
+    listings: list[ListingResponse] = Field(default_factory=list)
+    image_urls: list[str] = Field(default_factory=list)
 
     @classmethod
     def from_post(cls, post: Post) -> PostResponse:
@@ -183,69 +196,189 @@ class PostResponse(BaseModel):
             name=post.name,
             created_at=post.created_at,
             updated_at=post.updated_at,
+            description=post.description,
             deleted_at=post.deleted_at,
+            listings=[
+                ListingResponse(
+                    id=L.id,
+                    marketplace_url=L.marketplace_url,
+                    image_url=L.image_url,
+                    created_at=L.created_at,
+                    status=L.status,
+                    description=L.description,
+                )
+                for L in post.listings
+            ],
+            image_urls=[*post.image_urls],
         )
 
 
-def _parse_list_post_request(include_deleted: bool = False) -> ListPostRequest:
-    return ListPostRequest(include_deleted=include_deleted)
+_POST_IMAGE_TYPES = frozenset(
+    ("image/jpeg", "image/png", "image/webp", "image/gif"),
+)
+_MAX_IMAGE_BYTES = 12 * 1024 * 1024
+_MAX_IMAGE_FILES = 24
 
 
-@app.post("/posts", response_model=PostResponse, status_code=201)
-def http_create_post(
-    req: CreatePostRequest,
-    repo: Annotated[PostRepository, Depends(get_post_repo)],
-) -> PostResponse:
-    try:
-        post = repo.create(req.name)
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e)) from e
-    return PostResponse.from_post(post)
+async def _upload_image_files_to_gcs(
+    post_id: str, uploads: list[UploadFile], storage: GoogleCloudStorage
+) -> list[str]:
+    urls: list[str] = []
+    for upload in uploads:
+        data = await upload.read()
+        if len(data) == 0:
+            raise HTTPException(status_code=400, detail="empty file")
+        if len(data) > _MAX_IMAGE_BYTES:
+            raise HTTPException(status_code=400, detail="file too large")
+        ct = (upload.content_type or "").split(";")[0].strip()
+        if ct not in _POST_IMAGE_TYPES and upload.filename:
+            guess, _ = mimetypes.guess_type(upload.filename)
+            if guess in _POST_IMAGE_TYPES:
+                ct = guess
+        if ct not in _POST_IMAGE_TYPES:
+            raise HTTPException(
+                status_code=400,
+                detail="only image/jpeg, image/png, image/webp, image/gif allowed",
+            )
+        ext = mimetypes.guess_extension(ct) or ".img"
+        if ext in (".jpe",):
+            ext = ".jpg"
+        object_name = f"posts/{post_id}/{uuid.uuid4().hex}{ext}"
+        storage.upload_bytes(
+            object_name, data, content_type=ct or "application/octet-stream"
+        )
+        urls.append(
+            public_https_url_for_gcs_object(storage.bucket_name, object_name),
+        )
+    return urls
 
 
-@app.patch("/posts", response_model=PostResponse)
-def http_update_post(
-    req: UpdatePostRequest,
-    repo: Annotated[PostRepository, Depends(get_post_repo)],
-) -> PostResponse:
-    try:
-        post = repo.update(req.id, name=req.name)
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e)) from e
-    if post is None:
-        raise HTTPException(status_code=404, detail="post not found")
-    return PostResponse.from_post(post)
-
-
-@app.post("/posts/get", response_model=PostResponse)
-def http_get_post(
-    req: GetPostRequest,
-    repo: Annotated[PostRepository, Depends(get_post_repo)],
-) -> PostResponse:
-    if req.id is not None:
-        post = repo.get_by_id(req.id, include_deleted=req.include_deleted)
-    else:
-        post = repo.get_by_name(req.name or "", include_deleted=req.include_deleted)
-    if post is None:
-        raise HTTPException(status_code=404, detail="post not found")
-    return PostResponse.from_post(post)
-
-
-@app.get("/posts", response_model=list[PostResponse])
-def http_list_posts(
-    req: Annotated[ListPostRequest, Depends(_parse_list_post_request)],
-    repo: Annotated[PostRepository, Depends(get_post_repo)],
-) -> list[PostResponse]:
-    posts = repo.list_posts(include_deleted=req.include_deleted)
+@app.get("/posts", response_model=list[PostResponse] | PostResponse)
+def http_get_posts(
+    name: str | None = None,
+    include_deleted: bool = False,
+    repo: PostRepository = Depends(get_post_repo),
+) -> list[PostResponse] | PostResponse:
+    if name is not None:
+        post = repo.get_by_name(name, include_deleted=include_deleted)
+        if post is None:
+            raise HTTPException(status_code=404, detail="post not found")
+        return PostResponse.from_post(post)
+    posts = repo.list_posts(include_deleted=include_deleted)
     return [PostResponse.from_post(p) for p in posts]
 
 
-@app.post("/posts/delete", response_model=PostResponse)
-def http_soft_delete_post(
-    req: DeletePostRequest,
-    repo: Annotated[PostRepository, Depends(get_post_repo)],
+@app.get("/posts/{post_id}", response_model=PostResponse)
+def http_get_post(
+    post_id: str,
+    include_deleted: bool = False,
+    repo: PostRepository = Depends(get_post_repo),
 ) -> PostResponse:
-    post = repo.soft_delete(req.id)
+    post = repo.get_by_id(post_id, include_deleted=include_deleted)
+    if post is None:
+        raise HTTPException(status_code=404, detail="post not found")
+    return PostResponse.from_post(post)
+
+
+@app.post("/posts", response_model=PostResponse, status_code=201)
+async def http_create_post(
+    request: Request,
+    repo: PostRepository = Depends(get_post_repo),
+) -> PostResponse:
+    content_type = (request.headers.get("content-type") or "").lower()
+    if "application/json" in content_type:
+        try:
+            raw = await request.json()
+        except Exception as e:
+            raise HTTPException(
+                status_code=422, detail="invalid JSON body"
+            ) from e
+        if not isinstance(raw, dict):
+            raise HTTPException(status_code=422, detail="expected a JSON object")
+        name = raw.get("name")
+        if not isinstance(name, str):
+            raise HTTPException(status_code=422, detail="name is required")
+        desc_raw = raw.get("description", "")
+        description = desc_raw if isinstance(desc_raw, str) else ""
+        try:
+            post = repo.create(name, description=description)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e)) from e
+        return PostResponse.from_post(post)
+
+    if "multipart/form-data" not in content_type:
+        raise HTTPException(
+            status_code=415,
+            detail="Content-Type must be application/json or multipart/form-data",
+        )
+    form = await request.form()
+    body_desc = form.get("description")
+    if not isinstance(body_desc, str) or not body_desc.strip():
+        raise HTTPException(
+            status_code=422,
+            detail="description is required (non-empty) for image upload",
+        )
+    file_uploads: list[UploadFile] = []
+    for k, v in form.multi_items():
+        if k == "files":
+            file_uploads.append(v)  # UploadFile from Starlette
+    if not file_uploads:
+        raise HTTPException(
+            status_code=422, detail="at least one image file is required"
+        )
+
+    storage = get_images_storage()
+    if storage is None:
+        raise HTTPException(
+            status_code=503,
+            detail="image uploads not configured (set GCS_IMAGES_BUCKET)",
+        )
+    if len(file_uploads) > _MAX_IMAGE_FILES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"at most {_MAX_IMAGE_FILES} files per request",
+        )
+    # Upload to bucket first, then persist post with the same id used for object paths
+    post_id = str(uuid.uuid4())
+    urls = await _upload_image_files_to_gcs(post_id, file_uploads, storage)
+    internal_name = f"p-{post_id.replace('-', '')[:16]}"
+    try:
+        post = repo.create(
+            internal_name,
+            description=body_desc.strip(),
+            post_id=post_id,
+            image_urls=urls,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    return PostResponse.from_post(post)
+
+
+@app.put("/posts/{post_id}", response_model=PostResponse)
+def http_update_post(
+    post_id: str,
+    req: UpdatePostRequest,
+    repo: PostRepository = Depends(get_post_repo),
+) -> PostResponse:
+    try:
+        post = repo.update(
+            post_id,
+            name=req.name,
+            description=req.description,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    if post is None:
+        raise HTTPException(status_code=404, detail="post not found")
+    return PostResponse.from_post(post)
+
+
+@app.delete("/posts/{post_id}", response_model=PostResponse)
+def http_delete_post(
+    post_id: str,
+    repo: PostRepository = Depends(get_post_repo),
+) -> PostResponse:
+    post = repo.soft_delete(post_id)
     if post is None:
         raise HTTPException(status_code=404, detail="post not found")
     return PostResponse.from_post(post)

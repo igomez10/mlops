@@ -54,6 +54,7 @@ def test_gemini_from_settings_api_key(monkeypatch):
             CloudSettings(
                 gcp_project_id=None,
                 gcs_bucket=None,
+                gcs_images_bucket=None,
                 firestore_database_id="(default)",
                 gemini_model="gem-m",
                 gemini_api_key="k",
@@ -72,6 +73,7 @@ def test_gemini_from_settings_vertex_requires_project(monkeypatch):
     settings = CloudSettings(
         gcp_project_id=None,
         gcs_bucket=None,
+        gcs_images_bucket=None,
         firestore_database_id="(default)",
         gemini_model="gem-m",
         gemini_api_key=None,

@@ -158,3 +158,17 @@ def test_mongo_list_empty(mongo_container: MongoDbContainer) -> None:
         assert repo.list_posts() == []
     finally:
         client.drop_database(db_name)
+
+
+@pytest.mark.integration
+def test_mongo_create_with_image_urls_persists_listings(
+    mongo_repo: MongoPostRepository,
+) -> None:
+    u = "https://storage.googleapis.com/bk/p/1.jpg"
+    p = mongo_repo.create("list-host", image_urls=[u])
+    assert p.image_urls == [u]
+    assert len(p.listings) == 1
+    assert p.listings[0].image_url == u
+    again = mongo_repo.get_by_id(p.id)
+    assert again is not None
+    assert len(again.listings) == 1

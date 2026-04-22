@@ -7,6 +7,11 @@ terraform {
       version = "~> 7.27"
     }
   }
+
+  backend "gcs" {
+    bucket = "mlops-492103-terraform-state"
+    prefix = "terraform/state"
+  }
 }
 
 provider "google" {

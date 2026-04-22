@@ -16,6 +16,8 @@ COMPOSE := docker compose
 
 GCP_REGION := us-central1
 GCP_PROJECT := mlops-492103
+# Post image uploads (terraform: ${project_id}-mlops-images)
+DEV_GCS_IMAGES_BUCKET := $(GCP_PROJECT)-mlops-images
 VERTEX_ENDPOINT := linear-regression-endpoint
 VERTEX_ARTIFACT_URI := gs://$(GCP_PROJECT)-mlflow-artifacts/models/linear-regression/
 SKLEARN_IMAGE := us-docker.pkg.dev/vertex-ai/prediction/sklearn-cpu.1-3:latest
@@ -92,6 +94,7 @@ dev-server: compose-up-dev
 	mkdir -p $$(dirname $(SERVER_LOG))
 	MLFLOW_TRACKING_URI=$(DEV_MLFLOW_URL) \
 	MONGODB_URI=$(DEV_MONGODB_URL) \
+	GCS_IMAGES_BUCKET=$(DEV_GCS_IMAGES_BUCKET) \
 	uvicorn server:app --host $(DEV_HOST) --port $(DEV_PORT) --reload 2>&1 | tee $(SERVER_LOG)
 
 start-docker-compose:

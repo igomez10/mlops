@@ -16,6 +16,24 @@ def test_create_sets_id_and_timestamps():
     assert before <= post.created_at <= after
     assert post.created_at == post.updated_at
     assert post.deleted_at is None
+    assert post.listings == []
+    assert post.image_urls == []
+
+
+def test_create_with_image_urls_produces_synthetic_listings():
+    repo = InMemoryPostRepository()
+    urls = [
+        "https://storage.googleapis.com/bk/a.png",
+        "https://storage.googleapis.com/bk/b.png",
+    ]
+    post = repo.create("Items", image_urls=urls)
+    assert post.image_urls == urls
+    assert len(post.listings) == 2
+    for i, L in enumerate(post.listings):
+        assert L.image_url == urls[i]
+        assert L.status == "draft"
+        assert "Items" in L.description
+        assert "local.invalid" in L.marketplace_url
 
 
 def test_get_by_id():
@@ -179,3 +197,10 @@ def test_get_by_name_include_deleted_prefers_newest():
     found = repo.get_by_name("dup", include_deleted=True)
     assert found is not None
     assert found.id == new.id
+
+
+def test_create_with_fixed_post_id():
+    repo = InMemoryPostRepository()
+    pid = "00000000-0000-4000-8000-000000000001"
+    post = repo.create("x", post_id=pid, image_urls=[])
+    assert post.id == pid

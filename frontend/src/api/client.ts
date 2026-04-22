@@ -10,15 +10,99 @@ function apiBase(): string {
   return base.replace(/\/$/, '')
 }
 
+async function readError(res: Response): Promise<string> {
+  const text = await res.text()
+  try {
+    const j = JSON.parse(text) as { detail?: string | unknown }
+    if (typeof j.detail === 'string') return j.detail
+  } catch {
+    /* use raw */
+  }
+  return text.slice(0, 200) || res.statusText
+}
+
 export async function fetchPosts(): Promise<Post[]> {
   const res = await fetch(`${apiBase()}/posts`, {
     headers: { Accept: 'application/json' },
   })
   if (!res.ok) {
-    const text = await res.text()
     throw new Error(
-      `Failed to load posts (${res.status}): ${text.slice(0, 200)}`,
+      `Failed to load posts (${res.status}): ${await readError(res)}`,
     )
   }
   return res.json() as Promise<Post[]>
+}
+
+/** Create via JSON (e.g. tests): server assigns listings/images only when using multipart with files. */
+export async function createPost(
+  name: string,
+  options: { description?: string } = {},
+): Promise<Post> {
+  const { description = '' } = options
+  const res = await fetch(`${apiBase()}/posts`, {
+    method: 'POST',
+    headers: {
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ name, description }),
+  })
+  if (!res.ok) {
+    throw new Error(`Create failed (${res.status}): ${await readError(res)}`)
+  }
+  return res.json() as Promise<Post>
+}
+
+/**
+ * Create with description + image: backend uploads to the bucket first, then writes the post.
+ */
+export async function createPostWithImage(
+  description: string,
+  image: File,
+): Promise<Post> {
+  if (!image || image.size === 0) {
+    throw new Error('Choose an image')
+  }
+  const form = new FormData()
+  form.append('description', description.trim())
+  form.append('files', image)
+  const res = await fetch(`${apiBase()}/posts`, {
+    method: 'POST',
+    body: form,
+  })
+  if (!res.ok) {
+    throw new Error(`Create failed (${res.status}): ${await readError(res)}`)
+  }
+  return res.json() as Promise<Post>
+}
+
+export async function updatePost(
+  id: string,
+  body: { name?: string; description?: string },
+): Promise<Post> {
+  const res = await fetch(`${apiBase()}/posts/${encodeURIComponent(id)}`, {
+    method: 'PUT',
+    headers: {
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(body),
+  })
+  if (!res.ok) {
+    throw new Error(`Update failed (${res.status}): ${await readError(res)}`)
+  }
+  return res.json() as Promise<Post>
+}
+
+export async function deletePost(id: string): Promise<Post> {
+  const res = await fetch(`${apiBase()}/posts/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+    headers: {
+      Accept: 'application/json',
+    },
+  })
+  if (!res.ok) {
+    throw new Error(`Delete failed (${res.status}): ${await readError(res)}`)
+  }
+  return res.json() as Promise<Post>
 }

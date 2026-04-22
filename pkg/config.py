@@ -24,6 +24,8 @@ class CloudSettings:
 
     gcp_project_id: str | None
     gcs_bucket: str | None
+    # GCS_IMAGES_BUCKET: post image uploads (e.g. mlops-images). If unset, uploads are disabled.
+    gcs_images_bucket: str | None
     firestore_database_id: str
     gemini_model: str
     gemini_api_key: str | None
@@ -41,6 +43,7 @@ class CloudSettings:
         return cls(
             gcp_project_id=project,
             gcs_bucket=_env("GCS_BUCKET"),
+            gcs_images_bucket=_env("GCS_IMAGES_BUCKET"),
             firestore_database_id=_env("FIRESTORE_DATABASE_ID") or "(default)",
             gemini_model=_env("GEMINI_MODEL") or "gemini-2.0-flash",
             gemini_api_key=_env("GEMINI_API_KEY"),

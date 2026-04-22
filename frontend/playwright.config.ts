@@ -26,12 +26,13 @@ export default defineConfig({
   projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
   webServer: [
     {
-      command: `python -m uvicorn server:app --host 127.0.0.1 --port ${PLAYWRIGHT_API_PORT}`,
+      command: `uv run python -m uvicorn server:app --host 127.0.0.1 --port ${PLAYWRIGHT_API_PORT}`,
       cwd: repoRoot,
       env: {
         ...process.env,
         PYTHONPATH: repoRoot,
         MONGODB_URI: '',
+        E2E_TEST: '1',
       },
       url: `${PLAYWRIGHT_API_BASE}/health`,
       reuseExistingServer: !process.env.CI,

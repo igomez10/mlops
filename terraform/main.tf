@@ -3,6 +3,22 @@
 # Provider configuration is in versions.tf.
 # Variables are declared in variables.tf and set in terraform.tfvars.
 
+resource "google_storage_bucket" "terraform_state" {
+  name          = "${var.project_id}-terraform-state"
+  location      = var.region
+  force_destroy = false
+
+  uniform_bucket_level_access = true
+
+  versioning {
+    enabled = true
+  }
+
+  lifecycle {
+    prevent_destroy = true
+  }
+}
+
 resource "google_artifact_registry_repository" "mlflow" {
   repository_id = "mlflow"
   location      = var.region
@@ -132,6 +148,27 @@ resource "google_storage_bucket_iam_member" "fastapi_artifacts_reader" {
   member = "serviceAccount:${google_service_account.fastapi.email}"
 }
 
+# Post images for the FastAPI UI (public read; app uploads via objectUser).
+resource "google_storage_bucket" "mlops_images" {
+  name     = "${var.project_id}-mlops-images"
+  location = var.region
+
+  force_destroy               = false
+  uniform_bucket_level_access = true
+}
+
+resource "google_storage_bucket_iam_member" "mlops_images_fastapi_writer" {
+  bucket = google_storage_bucket.mlops_images.name
+  role   = "roles/storage.objectUser"
+  member = "serviceAccount:${google_service_account.fastapi.email}"
+}
+
+resource "google_storage_bucket_iam_member" "mlops_images_public_read" {
+  bucket = google_storage_bucket.mlops_images.name
+  role   = "roles/storage.objectViewer"
+  member = "allUsers"
+}
+
 resource "google_cloud_run_v2_service" "fastapi" {
   name     = "fastapi"
   location = var.region
@@ -150,6 +187,11 @@ resource "google_cloud_run_v2_service" "fastapi" {
       env {
         name  = "MLFLOW_MODEL_URI"
         value = "runs:/6736c234459f44769f3475477b730f89/model"
+      }
+
+      env {
+        name  = "GCS_IMAGES_BUCKET"
+        value = google_storage_bucket.mlops_images.name
       }
 
       resources {

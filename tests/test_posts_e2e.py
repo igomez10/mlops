@@ -73,6 +73,10 @@ def _run_full_post_crud_over_http(
     id_b = body_b["id"]
     assert body_b["name"] == beta_n
     assert id_b != id_a
+    assert body_a.get("listings") == []
+    assert body_b.get("listings") == []
+    assert body_a.get("image_urls") == []
+    assert body_b.get("image_urls") == []
 
     our_ids: set[str] = {id_a, id_b}
 
@@ -86,34 +90,34 @@ def _run_full_post_crud_over_http(
     assert [row["name"] for row in ours] == [alpha_n, beta_n]
 
     # --- read one by id and by name ---
-    r = client.post("/posts/get", json={"id": id_a})
+    r = client.get(f"/posts/{id_a}")
     assert r.status_code == 200
     assert r.json()["name"] == alpha_n
 
-    r = client.post("/posts/get", json={"name": f"  {beta_n} "})
+    r = client.get("/posts", params={"name": f"  {beta_n} "})
     assert r.status_code == 200
     assert r.json()["id"] == id_b
 
-    r = client.post(
-        "/posts/get",
-        json={"name": beta_n, "include_deleted": False},
+    r = client.get(
+        "/posts",
+        params={"name": beta_n, "include_deleted": "false"},
     )
     assert r.status_code == 200
 
     # --- update second post ---
-    r = client.patch("/posts", json={"id": id_b, "name": gamma_n})
+    r = client.put(f"/posts/{id_b}", json={"name": gamma_n})
     assert r.status_code == 200
     assert r.json()["name"] == gamma_n
 
-    r = client.post("/posts/get", json={"name": gamma_n})
+    r = client.get("/posts", params={"name": gamma_n})
     assert r.status_code == 200
     assert r.json()["id"] == id_b
 
-    r = client.post("/posts/get", json={"name": beta_n})
+    r = client.get("/posts", params={"name": beta_n})
     assert r.status_code == 404
 
     # --- soft delete first post ---
-    r = client.post("/posts/delete", json={"id": id_a})
+    r = client.delete(f"/posts/{id_a}")
     assert r.status_code == 200
     del_body = r.json()
     assert del_body["id"] == id_a
@@ -128,10 +132,13 @@ def _run_full_post_crud_over_http(
     assert ours_active[0]["id"] == id_b
     assert ours_active[0]["name"] == gamma_n
 
-    r = client.post("/posts/get", json={"id": id_a})
+    r = client.get(f"/posts/{id_a}")
     assert r.status_code == 404
 
-    r = client.post("/posts/get", json={"id": id_a, "include_deleted": True})
+    r = client.get(
+        f"/posts/{id_a}",
+        params={"include_deleted": "true"},
+    )
     assert r.status_code == 200
     assert r.json()["name"] == alpha_n
 
