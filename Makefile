@@ -3,6 +3,17 @@ CONTAINER_NAME := mlflow
 VOLUME_NAME := mlflow-data
 PORT := 5001
 
+SERVER_LOG := ./logs/server.log
+DEV_HOST := 0.0.0.0
+DEV_PORT := 8000
+# Published host ports — must match docker-compose.yml ${DEV_*_PORT:-defaults}
+DEV_MLFLOW_PORT := 5001
+DEV_MONGO_PORT := 27017
+DEV_MLFLOW_URL := http://127.0.0.1:$(DEV_MLFLOW_PORT)
+DEV_MONGODB_URL := mongodb://127.0.0.1:$(DEV_MONGO_PORT)
+
+COMPOSE := docker compose
+
 GCP_REGION := us-central1
 GCP_PROJECT := mlops-492103
 VERTEX_ENDPOINT := linear-regression-endpoint
@@ -12,7 +23,7 @@ AR_IMAGE := $(GCP_REGION)-docker.pkg.dev/$(GCP_PROJECT)/mlflow/mlflow:v3.10.1-fu
 FASTAPI_IMAGE := $(GCP_REGION)-docker.pkg.dev/$(GCP_PROJECT)/fastapi/fastapi:latest
 MLFLOW_VERSION := v3.10.1-full
 
-.PHONY: build run stop clean tf-plan tf-apply push-mlflow push-fastapi redeploy-mlflow redeploy-fastapi run-fastapi vertex-upload-toy-model vertex-deploy-toy-model vertex-undeploy-toy-model
+.PHONY: build run stop clean tf-plan tf-apply push-mlflow push-fastapi redeploy-mlflow redeploy-fastapi run-fastapi compose-up-dev dev-server start-docker-compose frontend-install frontend-dev ui frontend-e2e vertex-upload-toy-model vertex-deploy-toy-model vertex-undeploy-toy-model
 
 build-fastapi:
 	docker build -t $(FASTAPI_IMAGE) -f Dockerfile.fastapi .
@@ -72,8 +83,32 @@ redeploy-fastapi:
 run-fastapi:
 	uvicorn server:app --host 0.0.0.0 --port 8000 --reload
 
+# Start MLflow + MongoDB for local dev (host uses localhost URLs, not Docker service names).
+compose-up-dev:
+	DEV_MLFLOW_PORT=$(DEV_MLFLOW_PORT) DEV_MONGO_PORT=$(DEV_MONGO_PORT) $(COMPOSE) up -d mlflow mongodb
+
+# Dev: reload on code changes; copy stdout/stderr to SERVER_LOG (default ./logs/server.log).
+dev-server: compose-up-dev
+	mkdir -p $$(dirname $(SERVER_LOG))
+	MLFLOW_TRACKING_URI=$(DEV_MLFLOW_URL) \
+	MONGODB_URI=$(DEV_MONGODB_URL) \
+	uvicorn server:app --host $(DEV_HOST) --port $(DEV_PORT) --reload 2>&1 | tee $(SERVER_LOG)
+
 start-docker-compose:
-	docker-compose up -d
+	DEV_MLFLOW_PORT=$(DEV_MLFLOW_PORT) DEV_MONGO_PORT=$(DEV_MONGO_PORT) $(COMPOSE) up -d
+
+frontend-install:
+	cd frontend && npm ci
+
+frontend-dev:
+	cd frontend && npm run dev
+
+# React UI (Vite dev server; use with API e.g. make dev-server on :8000).
+ui: frontend-dev
+
+# Playwright starts API (in-memory Mongo) + Vite on ports 9876 / 5174 (see frontend/e2e/ports.ts).
+frontend-e2e:
+	cd frontend && CI=1 npm run test:e2e
 
 vertex-upload-toy-model:
 	gcloud ai models upload \

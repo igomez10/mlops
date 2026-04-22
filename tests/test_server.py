@@ -1,5 +1,3 @@
-from unittest.mock import MagicMock, patch
-
 import pytest
 from fastapi.testclient import TestClient
 
@@ -7,27 +5,9 @@ from server import CreatePostsRequest, app
 
 
 @pytest.fixture
-def mock_model():
-    model = MagicMock()
-    model.predict.return_value = [42000]
-    return model
-
-
-@pytest.fixture
-def client(mock_model):
-    with (
-        patch("server.mlflow.set_tracking_uri"),
-        patch("server.mlflow.pyfunc.load_model", return_value=mock_model),
-        patch.dict(
-            "os.environ",
-            {
-                "MLFLOW_TRACKING_URI": "http://localhost:5000",
-                "MLFLOW_MODEL_NAME": "test_model",
-            },
-        ),
-    ):
-        with TestClient(app) as test_client:
-            yield test_client
+def client():
+    with TestClient(app) as test_client:
+        yield test_client
 
 
 def test_health(client):
@@ -61,8 +41,7 @@ def test_add_body_parameters(client):
     assert response.json() == {"result": b0 + b1 * 1 + b2 * 2}
 
 
-def test_predict(client, mock_model):
-    mock_model.predict.return_value: list[int] = [450000]
+def test_predict(client):
     response = client.post("/predict_price_sqft", json={"sqft": 1500, "rooms": 3})
     assert response.status_code == 200
     assert response.json() == {"prediction": 450000}

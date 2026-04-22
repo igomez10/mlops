@@ -6,17 +6,26 @@ readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "boto3>=1.42.82",
+    "google-cloud-firestore>=2.16.0",
     "google-cloud-storage>=2.0.0",
+    "google-genai>=1.0.0",
     "fastapi>=0.135.3",
     "ipykernel>=7.2.0",
     "matplotlib>=3.10.8",
     "mlflow>=2.0.0",
     "pandas>=2.0.0,<3",
     "httpx>=0.27.0",
+    "pymongo>=4.6.0",
     "pytest>=9.0.2",
+    "testcontainers[mongodb]>=4.7.0",
     "statsmodels>=0.14.6",
     "uvicorn>=0.42.0",
 ]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = [
+    "integration: requires Docker (pulls Mongo via testcontainers)",
+    "e2e: exercises the HTTP API end-to-end",
+    "live: hits a real server (E2E_BASE_URL, default http://127.0.0.1:8000)",
+]
