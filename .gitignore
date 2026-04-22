@@ -17,3 +17,4 @@ frontend/dist/
 frontend/playwright-report/
 frontend/test-results/
 frontend/.env
+logs/server.log

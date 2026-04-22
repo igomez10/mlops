@@ -148,7 +148,7 @@ resource "google_storage_bucket_iam_member" "fastapi_artifacts_reader" {
   member = "serviceAccount:${google_service_account.fastapi.email}"
 }
 
-# Post images for the FastAPI UI (public read; app uploads via objectUser).
+# Post images for the FastAPI UI (private; served via API GET /images/...).
 resource "google_storage_bucket" "mlops_images" {
   name     = "${var.project_id}-mlops-images"
   location = var.region
@@ -163,11 +163,7 @@ resource "google_storage_bucket_iam_member" "mlops_images_fastapi_writer" {
   member = "serviceAccount:${google_service_account.fastapi.email}"
 }
 
-resource "google_storage_bucket_iam_member" "mlops_images_public_read" {
-  bucket = google_storage_bucket.mlops_images.name
-  role   = "roles/storage.objectViewer"
-  member = "allUsers"
-}
+# Images are private; the FastAPI service reads via objectUser and serves GET /images/...
 
 resource "google_cloud_run_v2_service" "fastapi" {
   name     = "fastapi"

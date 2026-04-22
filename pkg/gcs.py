@@ -60,14 +60,34 @@ class GoogleCloudStorage:
         blob.delete()
 
 
-def public_https_url_for_gcs_object(bucket: str, object_name: str) -> str:
+def normalize_stored_to_object_key(
+    stored: str, images_bucket: str | None
+) -> str:
     """
-    Public URL for the object, suitable for ``<img src>`` (bucket must allow public read).
+    Return the GCS object key for this post (``posts/<id>/...``).
 
-    ``object_name`` is the key path inside the bucket (e.g. ``posts/<id>/<file>.png``).
+    Accepts a stored object key, or a legacy public GCS URL for that bucket, so
+    the API can migrate without rewriting Mongo documents.
+    """
+    s = (stored or "").strip()
+    pfx = "https://storage.googleapis.com/"
+    if s.startswith(pfx) and images_bucket:
+        without_host = s[len(pfx) :]
+        bkt = f"{images_bucket}/"
+        if without_host.startswith(bkt):
+            return without_host[len(bkt) :]
+    return s
+
+
+def api_absolute_url_for_object_key(public_base: str, object_key: str) -> str:
+    """
+    Public URL to fetch an image through this API (served from private GCS via GET ``/images/...``).
     """
     from urllib.parse import quote
 
-    clean = object_name.lstrip("/")
-    encoded_path = "/".join(quote(part, safe="") for part in clean.split("/") if part)
-    return f"https://storage.googleapis.com/{quote(bucket, safe='')}/{encoded_path}"
+    base = public_base.rstrip("/")
+    key = (object_key or "").strip().lstrip("/")
+    if not key:
+        return f"{base}/images/"
+    parts = [quote(part, safe="") for part in key.split("/") if part]
+    return f"{base}/images/{'/'.join(parts)}"

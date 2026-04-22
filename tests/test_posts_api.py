@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import uuid
 from unittest.mock import MagicMock, patch
+from urllib.parse import urlparse
 
 import pytest
 from fastapi.testclient import TestClient
@@ -105,13 +106,52 @@ def test_http_create_post_with_images_synthetic_listings(
         assert body["description"] == "My new listing photo"
         assert body["name"].startswith("p-")
         assert len(body["image_urls"]) == 1
-        assert body["image_urls"][0].startswith(
-            "https://storage.googleapis.com/mlops-images/"
-        )
+        assert body["image_urls"][0].startswith("http://testserver/images/posts/")
         assert len(body["listings"]) == 1
         assert body["listings"][0]["image_url"] == body["image_urls"][0]
         assert body["listings"][0]["status"] == "draft"
         store.upload_bytes.assert_called_once()
+        # Stored value is the object key, not a public GCS URL
+        pid = body["id"]
+        assert store.upload_bytes.call_args[0][0].startswith(f"posts/{pid}/")
+    finally:
+        app_state["images_storage"] = None
+
+
+def test_get_post_image_proxies_from_private_gcs(client: TestClient) -> None:
+    store = MagicMock()
+    store.bucket_name = "mlops-images"
+    store.upload_bytes = MagicMock()
+    store.exists = MagicMock(return_value=True)
+    store.download_bytes = MagicMock(return_value=b"\x89PNG_PROXY")
+    app_state["images_storage"] = store
+    try:
+        r = client.post(
+            "/posts",
+            data={"description": "photo"},
+            files=[("files", ("a.png", b"\x89PNG\n", "image/png"))],
+        )
+        assert r.status_code == 201
+        url = r.json()["image_urls"][0]
+        r2 = client.get(urlparse(url).path)
+        assert r2.status_code == 200
+        assert r2.content == b"\x89PNG_PROXY"
+        assert "image" in (r2.headers.get("content-type") or "")
+        store.exists.assert_called()
+        store.download_bytes.assert_called()
+    finally:
+        app_state["images_storage"] = None
+
+
+def test_get_post_image_404_for_unknown_path(client: TestClient) -> None:
+    store = MagicMock()
+    store.bucket_name = "b"
+    app_state["images_storage"] = store
+    try:
+        r = client.get(
+            "/images/posts/00000000-0000-0000-0000-000000000000/nope.png",
+        )
+        assert r.status_code == 404
     finally:
         app_state["images_storage"] = None
 

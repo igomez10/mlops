@@ -23,8 +23,8 @@ def test_create_sets_id_and_timestamps():
 def test_create_with_image_urls_produces_synthetic_listings():
     repo = InMemoryPostRepository()
     urls = [
-        "https://storage.googleapis.com/bk/a.png",
-        "https://storage.googleapis.com/bk/b.png",
+        "posts/p1/aaaa.png",
+        "posts/p1/bbbb.png",
     ]
     post = repo.create("Items", image_urls=urls)
     assert post.image_urls == urls

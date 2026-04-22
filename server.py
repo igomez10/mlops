@@ -5,19 +5,21 @@ from __future__ import annotations
 # import requests
 import mimetypes
 import os
+import re
 import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime
 import fastapi
 from fastapi import Depends, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import Response
 from pydantic import BaseModel, Field, model_validator
 from pymongo import MongoClient
 from starlette.requests import Request
 
 from pkg import CloudSettings, FirestoreMongoDatabase, GeminiClient, GoogleCloudStorage
-from pkg.gcs import public_https_url_for_gcs_object
-from pkg.posts import InMemoryPostRepository, MongoPostRepository, PostRepository
+from pkg.gcs import api_absolute_url_for_object_key, normalize_stored_to_object_key
+from pkg.posts import InMemoryPostRepository, MongoPostRepository, Post, PostRepository
 
 # from PIL import Image
 # from transformers import pipeline
@@ -66,6 +68,19 @@ def get_images_storage() -> GoogleCloudStorage | None:
     return app_state.get("images_storage")
 
 
+def _images_bucket() -> str | None:
+    s = get_images_storage()
+    return s.bucket_name if s is not None else None
+
+
+def _post_has_stored_image(post: Post, object_path: str, bucket: str | None) -> bool:
+    for stored in post.image_urls:
+        k = normalize_stored_to_object_key(stored, bucket)
+        if k == object_path or k.rstrip("/") == object_path.rstrip("/"):
+            return True
+    return False
+
+
 app = fastapi.FastAPI(lifespan=lifespan)
 
 _default_cors = (
@@ -99,6 +114,45 @@ if os.environ.get("E2E_TEST") == "1":
 @app.get("/health")
 def health() -> dict:
     return {"status": "ok"}
+
+
+@app.get("/images/{object_path:path}", response_class=Response)
+def http_get_post_image(
+    object_path: str,
+    repo: PostRepository = Depends(get_post_repo),
+    storage: GoogleCloudStorage | None = Depends(get_images_storage),
+) -> Response:
+    """
+    Stream a post image from private GCS. Only objects referenced on an active
+    post (and under ``posts/<post_id>/``) are served.
+    """
+    if storage is None:
+        raise HTTPException(
+            status_code=503, detail="image storage not configured"
+        )
+    if ".." in object_path or not object_path.startswith("posts/"):
+        raise HTTPException(status_code=404, detail="not found")
+    m = re.match(r"^posts/([^/]+)/[^/]+$", object_path)
+    if not m:
+        raise HTTPException(status_code=404, detail="not found")
+    post_id = m.group(1)
+    post = repo.get_by_id(post_id, include_deleted=False)
+    if post is None:
+        raise HTTPException(status_code=404, detail="not found")
+    bucket = storage.bucket_name
+    if not _post_has_stored_image(post, object_path, bucket):
+        raise HTTPException(status_code=404, detail="not found")
+    if not storage.exists(object_path):
+        raise HTTPException(status_code=404, detail="not found")
+    data = storage.download_bytes(object_path)
+    media_type, _ = mimetypes.guess_type(object_path)
+    if not media_type:
+        media_type = "application/octet-stream"
+    return Response(
+        content=data,
+        media_type=media_type,
+        headers={"Cache-Control": "private, max-age=300"},
+    )
 
 
 @app.get("/")
@@ -190,7 +244,17 @@ class PostResponse(BaseModel):
     image_urls: list[str] = Field(default_factory=list)
 
     @classmethod
-    def from_post(cls, post: Post) -> PostResponse:
+    def from_post(
+        cls,
+        post: Post,
+        *,
+        public_base: str,
+        images_bucket: str | None = None,
+    ) -> "PostResponse":
+        def _img_url(stored: str) -> str:
+            key = normalize_stored_to_object_key(stored, images_bucket)
+            return api_absolute_url_for_object_key(public_base, key)
+
         return cls(
             id=post.id,
             name=post.name,
@@ -202,14 +266,14 @@ class PostResponse(BaseModel):
                 ListingResponse(
                     id=L.id,
                     marketplace_url=L.marketplace_url,
-                    image_url=L.image_url,
+                    image_url=_img_url(L.image_url),
                     created_at=L.created_at,
                     status=L.status,
                     description=L.description,
                 )
                 for L in post.listings
             ],
-            image_urls=[*post.image_urls],
+            image_urls=[_img_url(u) for u in post.image_urls],
         )
 
 
@@ -223,7 +287,8 @@ _MAX_IMAGE_FILES = 24
 async def _upload_image_files_to_gcs(
     post_id: str, uploads: list[UploadFile], storage: GoogleCloudStorage
 ) -> list[str]:
-    urls: list[str] = []
+    """Upload images to private GCS; returns object keys (``posts/...``), not public URLs."""
+    object_keys: list[str] = []
     for upload in uploads:
         data = await upload.read()
         if len(data) == 0:
@@ -247,29 +312,31 @@ async def _upload_image_files_to_gcs(
         storage.upload_bytes(
             object_name, data, content_type=ct or "application/octet-stream"
         )
-        urls.append(
-            public_https_url_for_gcs_object(storage.bucket_name, object_name),
-        )
-    return urls
+        object_keys.append(object_name)
+    return object_keys
 
 
 @app.get("/posts", response_model=list[PostResponse] | PostResponse)
 def http_get_posts(
+    request: Request,
     name: str | None = None,
     include_deleted: bool = False,
     repo: PostRepository = Depends(get_post_repo),
 ) -> list[PostResponse] | PostResponse:
+    base = str(request.base_url)
+    bkt = _images_bucket()
     if name is not None:
         post = repo.get_by_name(name, include_deleted=include_deleted)
         if post is None:
             raise HTTPException(status_code=404, detail="post not found")
-        return PostResponse.from_post(post)
+        return PostResponse.from_post(post, public_base=base, images_bucket=bkt)
     posts = repo.list_posts(include_deleted=include_deleted)
-    return [PostResponse.from_post(p) for p in posts]
+    return [PostResponse.from_post(p, public_base=base, images_bucket=bkt) for p in posts]
 
 
 @app.get("/posts/{post_id}", response_model=PostResponse)
 def http_get_post(
+    request: Request,
     post_id: str,
     include_deleted: bool = False,
     repo: PostRepository = Depends(get_post_repo),
@@ -277,7 +344,11 @@ def http_get_post(
     post = repo.get_by_id(post_id, include_deleted=include_deleted)
     if post is None:
         raise HTTPException(status_code=404, detail="post not found")
-    return PostResponse.from_post(post)
+    return PostResponse.from_post(
+        post,
+        public_base=str(request.base_url),
+        images_bucket=_images_bucket(),
+    )
 
 
 @app.post("/posts", response_model=PostResponse, status_code=201)
@@ -304,7 +375,11 @@ async def http_create_post(
             post = repo.create(name, description=description)
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e)) from e
-        return PostResponse.from_post(post)
+        return PostResponse.from_post(
+            post,
+            public_base=str(request.base_url),
+            images_bucket=_images_bucket(),
+        )
 
     if "multipart/form-data" not in content_type:
         raise HTTPException(
@@ -351,11 +426,16 @@ async def http_create_post(
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
-    return PostResponse.from_post(post)
+    return PostResponse.from_post(
+        post,
+        public_base=str(request.base_url),
+        images_bucket=_images_bucket(),
+    )
 
 
 @app.put("/posts/{post_id}", response_model=PostResponse)
 def http_update_post(
+    request: Request,
     post_id: str,
     req: UpdatePostRequest,
     repo: PostRepository = Depends(get_post_repo),
@@ -370,18 +450,27 @@ def http_update_post(
         raise HTTPException(status_code=400, detail=str(e)) from e
     if post is None:
         raise HTTPException(status_code=404, detail="post not found")
-    return PostResponse.from_post(post)
+    return PostResponse.from_post(
+        post,
+        public_base=str(request.base_url),
+        images_bucket=_images_bucket(),
+    )
 
 
 @app.delete("/posts/{post_id}", response_model=PostResponse)
 def http_delete_post(
+    request: Request,
     post_id: str,
     repo: PostRepository = Depends(get_post_repo),
 ) -> PostResponse:
     post = repo.soft_delete(post_id)
     if post is None:
         raise HTTPException(status_code=404, detail="post not found")
-    return PostResponse.from_post(post)
+    return PostResponse.from_post(
+        post,
+        public_base=str(request.base_url),
+        images_bucket=_images_bucket(),
+    )
 
 
 class CreatePostsRequest(BaseModel):

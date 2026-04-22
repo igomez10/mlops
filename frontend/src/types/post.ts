@@ -17,6 +17,6 @@ export type Post = {
   description?: string
   deleted_at: string | null
   listings: Listing[]
-  /** Full HTTPS URLs of images uploaded for this post (GCS public URLs). */
+  /** Absolute URLs to load images through the API (private GCS behind GET /images/...). */
   image_urls: string[]
 }

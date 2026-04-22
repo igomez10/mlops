@@ -3,7 +3,11 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from pkg.config import CloudSettings
-from pkg.gcs import GoogleCloudStorage
+from pkg.gcs import (
+    GoogleCloudStorage,
+    api_absolute_url_for_object_key,
+    normalize_stored_to_object_key,
+)
 
 
 def test_google_cloud_storage_requires_bucket_name():
@@ -57,3 +61,22 @@ def test_google_cloud_storage_default_client(mock_client_cls):
     mock_client.bucket.assert_called_once_with("bkt")
     gcs.upload_bytes("x", b"1")
     bucket.blob.return_value.upload_from_string.assert_called()
+
+
+def test_normalize_stored_to_object_key_strips_public_gcs_url():
+    b = "my-bkt"
+    key = "posts/abc-uuid/file.png"
+    public = f"https://storage.googleapis.com/{b}/{key}"
+    assert normalize_stored_to_object_key(public, b) == key
+    assert normalize_stored_to_object_key(key, b) == key
+    assert normalize_stored_to_object_key(key, None) == key
+
+
+def test_api_absolute_url_for_object_key():
+    assert (
+        api_absolute_url_for_object_key(
+            "https://api.example.com/",
+            "posts/x/a b.png",
+        )
+        == "https://api.example.com/images/posts/x/a%20b.png"
+    )
