@@ -1,17 +1,17 @@
-# Build & deploy the React (Vite) UI to Cloud Run. Resolves the public FastAPI URL at
-# build time and sets VITE_API_BASE_URL so the browser calls the API on Cloud Run.
+# Cloud Build: build the React (Vite) UI, push to Artifact Registry (ui/ui), deploy Cloud Run "ui".
 #
-# Prerequisite: the "fastapi" Cloud Run service exists in the same project/region.
+# Bakes VITE_API_BASE_URL from the public "fastapi" service URL in the same project/region.
 #
-# One-off: gcloud builds submit --config=cloudbuild.yaml --project=PROJECT_ID
-# For GitHub: add a trigger pointing at this file (see terraform ui_cloudbuild_trigger.tf).
+# Prerequisites: "fastapi" Cloud Run; Artifact Registry "ui" repo (terraform). IAM on ui.tf for Cloud Build SA.
 #
-# Required IAM for default Cloud Build SA (${PROJECT_NUM}@cloudbuild.gserviceaccount.com):
-# roles/run.admin, roles/artifactregistry.writer, roles/iam.serviceAccountUser (see terraform).
+# Manual:  gcloud builds submit --config=cloudbuild.yaml --project=PROJECT_ID
+# From Git: enable Terraform trigger (github_ui_trigger.tf) after connecting the repo in Cloud Build.
 #
+timeout: 1200s
 options:
   logging: CLOUD_LOGGING_ONLY
   automapSubstitutions: true
+  # Use E2_HIGHCPU_8 to speed up npm ci inside the Docker build if needed (adds build cost)
 
 substitutions:
   _REGION: us-central1
@@ -31,6 +31,17 @@ steps:
         test -s /workspace/fastapi_base_url.txt
         echo "VITE_API_BASE_URL=$$(cat /workspace/fastapi_base_url.txt)"
 
+  - id: auth-docker
+    name: gcr.io/google.com/cloudsdks/gcloud:slim
+    entrypoint: bash
+    args:
+      - -c
+      - |
+        set -euo pipefail
+        gcloud auth configure-docker "${_REGION}-docker.pkg.dev" --quiet
+    waitFor:
+      - resolve-fastapi-url
+
   - id: build-and-push
     name: gcr.io/cloud-builders/docker
     entrypoint: bash
@@ -40,13 +51,26 @@ steps:
         set -euo pipefail
         VITE=$$(cat /workspace/fastapi_base_url.txt)
         IMAGE="${_REGION}-docker.pkg.dev/${PROJECT_ID}/ui/ui"
-        docker build -f frontend/Dockerfile \
-          --build-arg "VITE_API_BASE_URL=$${VITE}" \
-          -t "$${IMAGE}:latest" \
-          frontend
-        docker push "$${IMAGE}:latest"
+        # GitHub trigger sets $$COMMIT_SHA; gcloud builds submit does not
+        if [ -n "$$COMMIT_SHA" ]; then
+          docker build -f frontend/Dockerfile \
+            --build-arg "VITE_API_BASE_URL=$$VITE" \
+            -t "$${IMAGE}:$$COMMIT_SHA" \
+            -t "$${IMAGE}:latest" \
+            frontend
+          docker push "$${IMAGE}:$$COMMIT_SHA"
+          docker push "$${IMAGE}:latest"
+          echo -n "$$COMMIT_SHA" > /workspace/ui_image_tag.txt
+        else
+          docker build -f frontend/Dockerfile \
+            --build-arg "VITE_API_BASE_URL=$$VITE" \
+            -t "$${IMAGE}:latest" \
+            frontend
+          docker push "$${IMAGE}:latest"
+          echo -n "latest" > /workspace/ui_image_tag.txt
+        fi
     waitFor:
-      - resolve-fastapi-url
+      - auth-docker
 
   - id: deploy-ui
     name: gcr.io/google.com/cloudsdks/gcloud:slim
@@ -55,8 +79,10 @@ steps:
       - -c
       - |
         set -euo pipefail
+        IMAGE_BASE="${_REGION}-docker.pkg.dev/${PROJECT_ID}/ui/ui"
+        TAG=$$(cat /workspace/ui_image_tag.txt)
         gcloud run deploy ui \
-          --image="${_REGION}-docker.pkg.dev/${PROJECT_ID}/ui/ui:latest" \
+          --image="$${IMAGE_BASE}:$${TAG}" \
           --region="${_REGION}" \
           --project="${PROJECT_ID}" \
           --platform=managed \
