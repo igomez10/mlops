@@ -88,6 +88,7 @@ redeploy-fastapi:
 
 run-fastapi:
 	GCS_IMAGES_BUCKET=$(DEV_GCS_IMAGES_BUCKET) \
+	MONGODB_URI=$(DEV_MONGODB_URL) \
 	uvicorn server:app --host 0.0.0.0 --port 8000 --reload
 
 # Start MLflow + MongoDB for local dev (host uses localhost URLs, not Docker service names).
