@@ -155,3 +155,4 @@ Defined in `terraform/monitoring.tf`. Alerts fire to the configured email on:
 - **High CPU** — p99 CPU utilization > 80% for 2 minutes on any Cloud Run service
 - **Billing budget** — alerts at 50% and 100% of the $50/month budget
 *i like sushi
+- **I dont like pizza**
