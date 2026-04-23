@@ -28,6 +28,37 @@ from pkg.posts import InMemoryPostRepository, MongoPostRepository, Post, PostRep
 
 app_state = {}
 
+_SEED_POSTS = [
+    {
+        "name": "Vintage Leather Jacket",
+        "description": "Brown leather jacket from the 80s, size M. Minor scuffs on the sleeves, otherwise great condition.",
+    },
+    {
+        "name": "Trek Mountain Bike 2019",
+        "description": "Trek Marlin 5 in excellent condition. 29-inch wheels, recently tuned, new brake pads.",
+    },
+    {
+        "name": "Standing Desk — Uplift V2",
+        "description": "Electric sit/stand desk, 60x30 walnut top. Includes cable management tray and memory handset.",
+    },
+    {
+        "name": "Sony WH-1000XM4 Headphones",
+        "description": "Noise-cancelling over-ear headphones, barely used. Comes with original case and cables.",
+    },
+    {
+        "name": "Mid-Century Coffee Table",
+        "description": "Solid walnut with tapered legs, 48x24 inches. Light surface scratches, sturdy and ready to use.",
+    },
+]
+
+
+def _seed_posts(repo: "InMemoryPostRepository") -> None:
+    for p in _SEED_POSTS:
+        try:
+            repo.create(p["name"], description=p["description"])
+        except ValueError:
+            pass
+
 # detector = pipeline(
 #     task="object-detection",
 #     model="hustvl/yolos-base",
@@ -48,7 +79,9 @@ async def lifespan(app: fastapi.FastAPI):
             mongo_client[db_name]["posts"]
         )
     else:
-        app_state["post_repository"] = InMemoryPostRepository()
+        repo = InMemoryPostRepository()
+        _seed_posts(repo)
+        app_state["post_repository"] = repo
     if settings.gcs_images_bucket:
         app_state["images_storage"] = GoogleCloudStorage(
             settings.gcs_images_bucket,

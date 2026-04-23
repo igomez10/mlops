@@ -25,7 +25,7 @@ AR_IMAGE := $(GCP_REGION)-docker.pkg.dev/$(GCP_PROJECT)/mlflow/mlflow:v3.10.1-fu
 FASTAPI_IMAGE := $(GCP_REGION)-docker.pkg.dev/$(GCP_PROJECT)/fastapi/fastapi:latest
 MLFLOW_VERSION := v3.10.1-full
 
-.PHONY: build run stop clean tf-plan tf-apply gcp-build-app push-mlflow push-fastapi redeploy-mlflow redeploy-fastapi run-fastapi compose-up-dev dev-server start-docker-compose frontend-install frontend-dev ui frontend-e2e vertex-upload-toy-model vertex-deploy-toy-model vertex-undeploy-toy-model
+.PHONY: build run stop clean tf-plan tf-apply gcp-build-app push-mlflow push-fastapi redeploy-mlflow redeploy-fastapi run-fastapi compose-up-dev dev-server dev-server-mongo start-docker-compose frontend-install frontend-dev ui frontend-e2e vertex-upload-toy-model vertex-deploy-toy-model vertex-undeploy-toy-model
 
 build-fastapi:
 	docker build -t $(FASTAPI_IMAGE) -f Dockerfile.fastapi .
@@ -93,8 +93,14 @@ run-fastapi:
 compose-up-dev:
 	DEV_MLFLOW_PORT=$(DEV_MLFLOW_PORT) DEV_MONGO_PORT=$(DEV_MONGO_PORT) $(COMPOSE) up -d mlflow mongodb
 
-# Dev: reload on code changes; copy stdout/stderr to SERVER_LOG (default ./logs/server.log).
-dev-server: compose-up-dev
+# Dev: reload on code changes; in-memory DB (no MongoDB required).
+dev-server:
+	mkdir -p $$(dirname $(SERVER_LOG))
+	GCS_IMAGES_BUCKET=$(DEV_GCS_IMAGES_BUCKET) \
+	uvicorn server:app --host $(DEV_HOST) --port $(DEV_PORT) --reload 2>&1 | tee $(SERVER_LOG)
+
+# Dev: same as dev-server but backed by MongoDB (starts Docker Compose services first).
+dev-server-mongo: compose-up-dev
 	mkdir -p $$(dirname $(SERVER_LOG))
 	MLFLOW_TRACKING_URI=$(DEV_MLFLOW_URL) \
 	MONGODB_URI=$(DEV_MONGODB_URL) \
