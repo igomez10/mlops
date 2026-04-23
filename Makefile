@@ -97,6 +97,7 @@ compose-up-dev:
 dev-server:
 	mkdir -p $$(dirname $(SERVER_LOG))
 	GCS_IMAGES_BUCKET=$(DEV_GCS_IMAGES_BUCKET) \
+	SEED_POSTS=1 \
 	uvicorn server:app --host $(DEV_HOST) --port $(DEV_PORT) --reload 2>&1 | tee $(SERVER_LOG)
 
 # Dev: same as dev-server but backed by MongoDB (starts Docker Compose services first).

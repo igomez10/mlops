@@ -28,6 +28,7 @@ from pkg.posts import InMemoryPostRepository, MongoPostRepository, Post, PostRep
 
 app_state = {}
 
+
 _SEED_POSTS = [
     {
         "name": "Vintage Leather Jacket",
@@ -59,6 +60,7 @@ def _seed_posts(repo: "InMemoryPostRepository") -> None:
         except ValueError:
             pass
 
+
 # detector = pipeline(
 #     task="object-detection",
 #     model="hustvl/yolos-base",
@@ -80,7 +82,8 @@ async def lifespan(app: fastapi.FastAPI):
         )
     else:
         repo = InMemoryPostRepository()
-        _seed_posts(repo)
+        if os.environ.get("SEED_POSTS") == "1":
+            _seed_posts(repo)
         app_state["post_repository"] = repo
     if settings.gcs_images_bucket:
         app_state["images_storage"] = GoogleCloudStorage(
@@ -162,9 +165,7 @@ def http_get_post_image(
     post (and under ``posts/<post_id>/``) are served.
     """
     if storage is None:
-        raise HTTPException(
-            status_code=503, detail="image storage not configured"
-        )
+        raise HTTPException(status_code=503, detail="image storage not configured")
     if ".." in object_path or not object_path.startswith("posts/"):
         raise HTTPException(status_code=404, detail="not found")
     m = re.match(r"^posts/([^/]+)/[^/]+$", object_path)
@@ -361,7 +362,9 @@ def http_get_posts(
             raise HTTPException(status_code=404, detail="post not found")
         return PostResponse.from_post(post, public_base=base, images_bucket=bkt)
     posts = repo.list_posts(include_deleted=include_deleted)
-    return [PostResponse.from_post(p, public_base=base, images_bucket=bkt) for p in posts]
+    return [
+        PostResponse.from_post(p, public_base=base, images_bucket=bkt) for p in posts
+    ]
 
 
 @app.get("/posts/{post_id}", response_model=PostResponse)
@@ -391,9 +394,7 @@ async def http_create_post(
         try:
             raw = await request.json()
         except Exception as e:
-            raise HTTPException(
-                status_code=422, detail="invalid JSON body"
-            ) from e
+            raise HTTPException(status_code=422, detail="invalid JSON body") from e
         if not isinstance(raw, dict):
             raise HTTPException(status_code=422, detail="expected a JSON object")
         name = raw.get("name")
@@ -519,7 +520,9 @@ class CreatePostsRequest(BaseModel):
             raise ValueError("Estimated price must be non-negative.")
         return True
 
+
 database = []
+
 
 @app.post("/create_posts")
 def create_posts(req: CreatePostsRequest) -> dict:
@@ -538,6 +541,7 @@ def create_posts(req: CreatePostsRequest) -> dict:
     return {
         "message": f"Posts created successfully for user {req.user_id} on {req.platform}."
     }
+
 
 @app.get("/get_posts")
 def get_posts():
