@@ -181,14 +181,14 @@ export function PostList() {
   return (
     <div className="post-list">
       <div className="post-list-toolbar">
-        <h2 className="post-list-title">Your items</h2>
+        <h2 className="post-list-title">Your scans</h2>
         <button
           type="button"
           className="post-new-button"
           onClick={openCreate}
           data-testid="post-new-open"
         >
-          List an item
+          Scan new photo
         </button>
       </div>
 
@@ -205,60 +205,70 @@ export function PostList() {
             onSubmit={handleCreate}
             data-testid="post-create-form"
           >
-            <h2 className="post-create-dialog-title" id={titleId}>
-              List an item
-            </h2>
-            <label className="post-create-label" htmlFor="post-create-description">
-              Description
-            </label>
-            <textarea
-              id="post-create-description"
-              className="post-create-textarea"
-              value={createDescription}
-              onChange={(e) => setCreateDescription(e.target.value)}
-              rows={4}
-              disabled={creating}
-              placeholder="Condition, what's included, any flaws…"
-              data-testid="post-create-description"
-            />
-            <label className="post-create-label" htmlFor="post-create-image">
-              Image
-            </label>
-            <input
-              id="post-create-image"
-              type="file"
-              accept="image/jpeg,image/png,image/webp,image/gif"
-              disabled={creating}
-              data-testid="post-create-image"
-              onChange={(e) => {
-                const f = e.target.files?.[0] ?? null
-                setCreateImage(f)
-              }}
-            />
-            <div className="post-create-dialog-actions">
-              <button
-                type="button"
-                className="secondary"
-                onClick={closeCreate}
-                disabled={creating}
-                data-testid="post-create-cancel"
-              >
-                Cancel
-              </button>
-              <button
-                type="submit"
-                disabled={
-                  creating || !createDescription.trim() || !createImage
-                }
-                data-testid="post-create-submit"
-              >
-                {creating ? 'Uploading…' : 'Add to my items'}
-              </button>
+            <div className="post-create-dialog-header">
+              <h2 className="post-create-dialog-title" id={titleId}>
+                Scan &amp; detect items
+              </h2>
             </div>
-            <p className="post-create-hint muted">
-              We upload your photo securely first, then save your item so we can
-              prepare your eBay listing.
-            </p>
+            <div className="post-create-dialog-body">
+              <div className="post-create-scan-hint">
+                <span className="post-create-scan-dot" aria-hidden="true" />
+                AI will detect each item separately from your photo.
+              </div>
+              <label className="post-create-label" htmlFor="post-create-description">
+                What are you selling?
+              </label>
+              <textarea
+                id="post-create-description"
+                className="post-create-textarea"
+                value={createDescription}
+                onChange={(e) => setCreateDescription(e.target.value)}
+                rows={4}
+                disabled={creating}
+                placeholder="e.g. Moving boxes from living room — vintage lamp, blu-ray collection, desk accessories"
+                data-testid="post-create-description"
+              />
+              <label className="post-create-label" htmlFor="post-create-image">
+                Your photo (multiple items OK)
+              </label>
+              <div className="post-create-dropzone">
+                <input
+                  id="post-create-image"
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp,image/gif"
+                  disabled={creating}
+                  data-testid="post-create-image"
+                  onChange={(e) => {
+                    const f = e.target.files?.[0] ?? null
+                    setCreateImage(f)
+                  }}
+                />
+              </div>
+              <div className="post-create-dialog-actions">
+                <button
+                  type="button"
+                  className="secondary"
+                  onClick={closeCreate}
+                  disabled={creating}
+                  data-testid="post-create-cancel"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={
+                    creating || !createDescription.trim() || !createImage
+                  }
+                  data-testid="post-create-submit"
+                >
+                  {creating ? 'Scanning…' : 'Scan & detect items'}
+                </button>
+              </div>
+              <p className="post-create-hint muted">
+                We'll scan your photo for individual items and create a separate
+                listing for each one found.
+              </p>
+            </div>
           </form>
         </div>
       ) : null}
@@ -283,8 +293,8 @@ export function PostList() {
 
       {posts && posts.length === 0 ? (
         <p className="empty" data-testid="posts-empty">
-          No items yet. Tap <strong>List an item</strong> to upload a photo and
-          description—we’ll take it from there on eBay.
+          No scans yet. Tap <strong>Scan new photo</strong> — one photo can
+          create dozens of listings.
         </p>
       ) : null}
 
