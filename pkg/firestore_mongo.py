@@ -59,11 +59,11 @@ class FirestoreMongoCollection:
             if len(filter) != 1:
                 raise ValueError("When filtering by _id, no other fields may be present")
             snap = self._coll.document(_normalize_id(filter["_id"])).get()
-            if not snap.exists:
+            if not snap.exists:  # type: ignore[union-attr]
                 return None
-            return _with_id(snap.id, snap.to_dict())
+            return _with_id(snap.id, snap.to_dict())  # type: ignore[union-attr]
 
-        query: firestore.Query = self._coll
+        query: firestore.Query = self._coll  # type: ignore[assignment]
         for key, value in filter.items():
             query = query.where(filter=FieldFilter(key, "==", value))
         for snap in query.limit(1).stream():
@@ -88,7 +88,7 @@ class FirestoreMongoCollection:
             one = self.find_one(filter)
             return [one] if one else []
 
-        query: firestore.Query = self._coll
+        query: firestore.Query = self._coll  # type: ignore[assignment]
         for key, value in filter.items():
             query = query.where(filter=FieldFilter(key, "==", value))
         return [_with_id(snap.id, snap.to_dict()) for snap in query.limit(limit).stream()]
