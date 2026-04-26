@@ -9,7 +9,11 @@ from pymongo.collection import Collection
 from pymongo.errors import DuplicateKeyError
 
 from pkg.posts.models import Listing, Post
-from pkg.posts.repository import _normalize_name, _synthetic_listings_for_new_post, _utc_now
+from pkg.posts.repository import (
+    _normalize_name,
+    _synthetic_listings_for_new_post,
+    _utc_now,
+)
 
 
 def _ensure_utc(dt: datetime) -> datetime:

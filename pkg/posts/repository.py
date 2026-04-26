@@ -1,9 +1,8 @@
 from __future__ import annotations
 
+import uuid
 from datetime import datetime, timezone
 from typing import Protocol, runtime_checkable
-
-import uuid
 
 from pkg.posts.models import Listing, Post
 

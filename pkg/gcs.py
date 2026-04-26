@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from google.cloud import storage
+from google.cloud import storage  # type: ignore[attr-defined]
 
 if TYPE_CHECKING:
     from pkg.config import CloudSettings

@@ -10,6 +10,8 @@ import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path
+from typing import Any, cast
+
 import fastapi
 from fastapi import Depends, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
@@ -19,20 +21,22 @@ from pydantic import BaseModel, Field, model_validator
 from pymongo import MongoClient
 from starlette.requests import Request
 
-from pkg import CloudSettings, FirestoreMongoDatabase, GeminiClient, GoogleCloudStorage
+from pkg import CloudSettings, GoogleCloudStorage
 from pkg.gcs import api_absolute_url_for_object_key, normalize_stored_to_object_key
 from pkg.posts import InMemoryPostRepository, MongoPostRepository, Post, PostRepository
 
 # from PIL import Image
 # from transformers import pipeline
 
-app_state = {}
+app_state: dict[str, Any] = {}
 
 
 _SEED_POSTS = [
     {
         "name": "Vintage Leather Jacket",
-        "description": "Brown leather jacket from the 80s, size M. Minor scuffs on the sleeves, otherwise great condition.",
+        "description": (
+            "Brown leather jacket from the 80s, size M. Minor scuffs on the sleeves, otherwise great condition."
+        ),
     },
     {
         "name": "Trek Mountain Bike 2019",
@@ -48,7 +52,9 @@ _SEED_POSTS = [
     },
     {
         "name": "Mid-Century Coffee Table",
-        "description": "Solid walnut with tapered legs, 48x24 inches. Light surface scratches, sturdy and ready to use.",
+        "description": (
+            "Solid walnut with tapered legs, 48x24 inches. Light surface scratches, sturdy and ready to use."
+        ),
     },
 ]
 
@@ -74,7 +80,7 @@ async def lifespan(app: fastapi.FastAPI):
     settings = CloudSettings.from_env()
     app_state["cloud_settings"] = settings
     if settings.mongodb_uri:
-        mongo_client = MongoClient(settings.mongodb_uri)
+        mongo_client: MongoClient[Any] = MongoClient(settings.mongodb_uri)
         app_state["mongo_client"] = mongo_client
         db_name = os.environ.get("MONGO_DATABASE", "mlops")
         app_state["post_repository"] = MongoPostRepository(
@@ -205,8 +211,8 @@ def addWithQueryParameters(num1: int, num2: int) -> dict:
 
 @app.post("/add_body_parameters")
 def addWithBodyParameters(request: dict) -> dict:
-    num1 = int(request.get("num1"))
-    num2 = int(request.get("num2"))
+    num1 = int(request["num1"])
+    num2 = int(request["num2"])
 
     b0 = 27
     b1 = 256
@@ -426,8 +432,8 @@ async def http_create_post(
         )
     file_uploads: list[UploadFile] = []
     for k, v in form.multi_items():
-        if k == "files":
-            file_uploads.append(v)  # UploadFile from Starlette
+        if k == "files" and not isinstance(v, str):
+            file_uploads.append(cast(UploadFile, v))
     if not file_uploads:
         raise HTTPException(
             status_code=422, detail="at least one image file is required"
