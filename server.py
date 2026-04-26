@@ -10,7 +10,7 @@ import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import fastapi
 from fastapi import Depends, HTTPException, UploadFile
@@ -432,8 +432,8 @@ async def http_create_post(
         )
     file_uploads: list[UploadFile] = []
     for k, v in form.multi_items():
-        if k == "files" and isinstance(v, UploadFile):
-            file_uploads.append(v)
+        if k == "files" and not isinstance(v, str):
+            file_uploads.append(cast(UploadFile, v))
     if not file_uploads:
         raise HTTPException(
             status_code=422, detail="at least one image file is required"
