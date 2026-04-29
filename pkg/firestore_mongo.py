@@ -44,6 +44,10 @@ class FirestoreMongoCollection:
     def __init__(self, collection: firestore.CollectionReference) -> None:
         self._coll = collection
 
+    def create_index(self, *args: Any, **kwargs: Any) -> str:
+        """No-op shim so repositories can reuse MongoDB-oriented startup code."""
+        return "firestore-noop-index"
+
     def insert_one(self, document: dict[str, Any]) -> InsertOneResult:
         doc = dict(document)
         doc_id = doc.pop("_id", None)

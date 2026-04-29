@@ -1,7 +1,8 @@
 import pytest
 from fastapi.testclient import TestClient
 
-from server import CreatePostsRequest, app
+from server import CreatePostsRequest, _resolve_posts_backend, app
+from pkg.config import CloudSettings
 
 
 @pytest.fixture
@@ -89,3 +90,37 @@ def test_create_invalid_post_request():
     invalid_request.platform = "invalid_platform"
     with pytest.raises(ValueError, match="Invalid platform: invalid_platform"):
         invalid_request.validate_request()
+
+
+def test_resolve_posts_backend_prefers_mongodb_when_uri_present(monkeypatch):
+    monkeypatch.delenv("K_SERVICE", raising=False)
+    settings = CloudSettings(
+        gcp_project_id=None,
+        gcs_bucket=None,
+        gcs_images_bucket=None,
+        firestore_database_id="(default)",
+        gemini_model="gemini-2.0-flash",
+        gemini_api_key=None,
+        gemini_use_vertex=False,
+        vertex_location="us-central1",
+        mongodb_uri="mongodb://127.0.0.1:27017",
+        posts_backend="auto",
+    )
+    assert _resolve_posts_backend(settings) == "mongodb"
+
+
+def test_resolve_posts_backend_uses_firestore_on_cloud_run(monkeypatch):
+    monkeypatch.setenv("K_SERVICE", "fastapi")
+    settings = CloudSettings(
+        gcp_project_id="proj-1",
+        gcs_bucket=None,
+        gcs_images_bucket=None,
+        firestore_database_id="(default)",
+        gemini_model="gemini-2.0-flash",
+        gemini_api_key=None,
+        gemini_use_vertex=False,
+        vertex_location="us-central1",
+        mongodb_uri=None,
+        posts_backend="auto",
+    )
+    assert _resolve_posts_backend(settings) == "firestore"

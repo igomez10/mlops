@@ -9,6 +9,12 @@ variable "region" {
   default     = "us-central1"
 }
 
+variable "firestore_location" {
+  description = "Firestore database location. Use a Firestore-supported region or multi-region such as nam5."
+  type        = string
+  default     = "nam5"
+}
+
 variable "zone" {
   description = "The default GCP zone for zonal resources."
   type        = string

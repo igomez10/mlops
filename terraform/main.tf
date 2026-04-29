@@ -29,6 +29,20 @@ resource "google_storage_bucket" "terraform_state" {
   }
 }
 
+resource "google_project_service" "firestore" {
+  project = var.project_id
+  service = "firestore.googleapis.com"
+}
+
+resource "google_firestore_database" "default" {
+  project     = var.project_id
+  name        = "(default)"
+  location_id = var.firestore_location
+  type        = "FIRESTORE_NATIVE"
+
+  depends_on = [google_project_service.firestore]
+}
+
 resource "google_artifact_registry_repository" "mlflow" {
   repository_id = "mlflow"
   location      = var.region
@@ -152,6 +166,12 @@ resource "google_service_account" "fastapi" {
   display_name = "FastAPI Cloud Run Service Account"
 }
 
+resource "google_project_iam_member" "fastapi_firestore_user" {
+  project = var.project_id
+  role    = "roles/datastore.user"
+  member  = "serviceAccount:${google_service_account.fastapi.email}"
+}
+
 resource "google_storage_bucket_iam_member" "fastapi_artifacts_reader" {
   bucket = google_storage_bucket.mlflow_artifacts.name
   role   = "roles/storage.objectViewer"
@@ -179,6 +199,8 @@ resource "google_cloud_run_v2_service" "fastapi" {
   name     = "fastapi"
   location = var.region
 
+  depends_on = [google_firestore_database.default]
+
   template {
     service_account = google_service_account.fastapi.email
 
@@ -198,6 +220,21 @@ resource "google_cloud_run_v2_service" "fastapi" {
       env {
         name  = "GCS_IMAGES_BUCKET"
         value = google_storage_bucket.mlops_images.name
+      }
+
+      env {
+        name  = "GOOGLE_CLOUD_PROJECT"
+        value = var.project_id
+      }
+
+      env {
+        name  = "POSTS_BACKEND"
+        value = "firestore"
+      }
+
+      env {
+        name  = "FIRESTORE_DATABASE_ID"
+        value = google_firestore_database.default.name
       }
 
       env {

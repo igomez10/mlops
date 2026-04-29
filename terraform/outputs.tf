@@ -13,6 +13,11 @@ output "gcs_images_bucket" {
   value       = google_storage_bucket.mlops_images.name
 }
 
+output "firestore_database_id" {
+  description = "Firestore database name used by the FastAPI service."
+  value       = google_firestore_database.default.name
+}
+
 output "app_artifact_image" {
   description = "Artifact Registry image for the combined API + UI container"
   value       = "${var.region}-docker.pkg.dev/${var.project_id}/fastapi/fastapi"

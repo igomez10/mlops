@@ -5,7 +5,6 @@ from datetime import datetime, timezone
 from typing import Any
 
 from pymongo import ASCENDING
-from pymongo.collection import Collection
 from pymongo.errors import DuplicateKeyError
 
 from pkg.posts.models import Listing, Post
@@ -68,13 +67,32 @@ def _doc_to_post(doc: dict[str, Any]) -> Post:
 class MongoPostRepository:
     """MongoDB-backed store: unique ``name`` among active posts (``deleted_at`` is null)."""
 
-    def __init__(self, collection: Collection) -> None:
+    def __init__(self, collection: Any) -> None:
         self._coll = collection
-        self._coll.create_index(
-            [("name", ASCENDING)],
-            unique=True,
-            partialFilterExpression={"deleted_at": None},
-        )
+        create_index = getattr(self._coll, "create_index", None)
+        if callable(create_index):
+            create_index(
+                [("name", ASCENDING)],
+                unique=True,
+                partialFilterExpression={"deleted_at": None},
+            )
+
+    def _find(self, query: dict[str, Any], *, limit: int = 500) -> list[dict[str, Any]]:
+        rows = self._coll.find(query, limit=limit)
+        if isinstance(rows, list):
+            return rows
+        return list(rows)
+
+    def _has_active_name_conflict(
+        self,
+        normalized_name: str,
+        *,
+        exclude_post_id: str | None = None,
+    ) -> bool:
+        for doc in self._find({"name": normalized_name, "deleted_at": None}):
+            if exclude_post_id is None or doc.get("_id") != exclude_post_id:
+                return True
+        return False
 
     def get_by_id(self, post_id: str, *, include_deleted: bool = False) -> Post | None:
         doc = self._coll.find_one({"_id": post_id})
@@ -93,14 +111,15 @@ class MongoPostRepository:
         if not include_deleted:
             doc = self._coll.find_one({"name": key, "deleted_at": None})
         else:
-            cur = self._coll.find({"name": key}).sort([("created_at", -1)]).limit(1)
-            doc = next(cur, None)
+            matches = self._find({"name": key})
+            doc = max(matches, key=lambda d: _ensure_utc(d["created_at"]), default=None)
         return _doc_to_post(doc) if doc else None
 
     def list_posts(self, *, include_deleted: bool = False) -> list[Post]:
         query: dict[str, Any] = {} if include_deleted else {"deleted_at": None}
-        cursor = self._coll.find(query).sort("created_at", ASCENDING)
-        return [_doc_to_post(doc) for doc in cursor]
+        docs = self._find(query)
+        docs.sort(key=lambda d: _ensure_utc(d["created_at"]))
+        return [_doc_to_post(doc) for doc in docs]
 
     def create(
         self,
@@ -111,6 +130,8 @@ class MongoPostRepository:
         image_urls: list[str] | None = None,
     ) -> Post:
         key = _normalize_name(name)
+        if self._has_active_name_conflict(key):
+            raise ValueError(f"a post with name {key!r} already exists")
         urls = list(image_urls) if image_urls is not None else []
         now = _utc_now()
         pid = post_id or str(uuid.uuid4())
@@ -151,18 +172,21 @@ class MongoPostRepository:
         name: str | None = None,
         description: str | None = None,
     ) -> Post | None:
-        if self._coll.find_one({"_id": post_id, "deleted_at": None}) is None:
+        if self.get_by_id(post_id, include_deleted=False) is None:
             return None
         if name is None and description is None:
             raise ValueError("at least one of name or description is required")
         to_set: dict[str, object] = {"updated_at": _utc_now()}
         if name is not None:
-            to_set["name"] = _normalize_name(name)
+            normalized_name = _normalize_name(name)
+            if self._has_active_name_conflict(normalized_name, exclude_post_id=post_id):
+                raise ValueError(f"a post with name {normalized_name!r} already exists")
+            to_set["name"] = normalized_name
         if description is not None:
             to_set["description"] = description.strip()
         try:
             res = self._coll.update_one(
-                {"_id": post_id, "deleted_at": None},
+                {"_id": post_id},
                 {"$set": to_set},
             )
         except DuplicateKeyError as exc:
@@ -177,7 +201,7 @@ class MongoPostRepository:
 
     def soft_delete(self, post_id: str) -> Post | None:
         now = _utc_now()
-        if self._coll.find_one({"_id": post_id, "deleted_at": None}) is None:
+        if self.get_by_id(post_id, include_deleted=False) is None:
             return None
         self._coll.update_one(
             {"_id": post_id},

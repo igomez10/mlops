@@ -27,6 +27,7 @@ def test_cloud_settings_from_env_defaults(monkeypatch):
     assert s.gemini_use_vertex is False
     assert s.vertex_location == "us-central1"
     assert s.mongodb_uri is None
+    assert s.posts_backend == "auto"
 
 
 def test_cloud_settings_from_env_overrides(monkeypatch):
@@ -38,6 +39,7 @@ def test_cloud_settings_from_env_overrides(monkeypatch):
     monkeypatch.setenv("GEMINI_USE_VERTEX", "true")
     monkeypatch.setenv("GOOGLE_CLOUD_LOCATION", "europe-west1")
     monkeypatch.setenv("MONGODB_URI", "mongodb://127.0.0.1:27017")
+    monkeypatch.setenv("POSTS_BACKEND", "firestore")
 
     s = CloudSettings.from_env()
     assert s.gcp_project_id == "proj-1"
@@ -48,6 +50,7 @@ def test_cloud_settings_from_env_overrides(monkeypatch):
     assert s.gemini_use_vertex is True
     assert s.vertex_location == "europe-west1"
     assert s.mongodb_uri == "mongodb://127.0.0.1:27017"
+    assert s.posts_backend == "firestore"
 
 
 def test_cloud_settings_prefers_google_cloud_project(monkeypatch):

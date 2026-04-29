@@ -25,7 +25,7 @@ AR_IMAGE := $(GCP_REGION)-docker.pkg.dev/$(GCP_PROJECT)/mlflow/mlflow:v3.10.1-fu
 FASTAPI_IMAGE := $(GCP_REGION)-docker.pkg.dev/$(GCP_PROJECT)/fastapi/fastapi:latest
 MLFLOW_VERSION := v3.10.1-full
 
-.PHONY: build run stop clean tf-plan tf-apply gcp-build-app push-mlflow push-fastapi redeploy-mlflow redeploy-fastapi run-fastapi compose-up-dev dev-server dev-server-mongo start-docker-compose frontend-install frontend-dev ui frontend-e2e vertex-upload-toy-model vertex-deploy-toy-model vertex-undeploy-toy-model
+.PHONY: build run stop clean tf-plan tf-apply gcp-build-app push-mlflow push-fastapi redeploy-mlflow redeploy-fastapi deploy-fastapi-local run-fastapi run-fastapi-firestore compose-up-dev dev-server dev-server-mongo start-docker-compose frontend-install frontend-dev ui frontend-e2e vertex-upload-toy-model vertex-deploy-toy-model vertex-undeploy-toy-model
 
 build-fastapi:
 	docker build -t $(FASTAPI_IMAGE) -f Dockerfile.fastapi .
@@ -86,19 +86,31 @@ redeploy-fastapi:
 		--project $(GCP_PROJECT) \
 		--quiet
 
+deploy-fastapi-local: push-fastapi redeploy-fastapi
+
 run-fastapi:
 	GCS_IMAGES_BUCKET=$(DEV_GCS_IMAGES_BUCKET) \
+	POSTS_BACKEND=mongodb \
 	MONGODB_URI=$(DEV_MONGODB_URL) \
+	uvicorn server:app --host 0.0.0.0 --port 8000 --reload
+
+run-fastapi-firestore:
+	GCS_IMAGES_BUCKET=$(DEV_GCS_IMAGES_BUCKET) \
+	GOOGLE_CLOUD_PROJECT=$(GCP_PROJECT) \
+	POSTS_BACKEND=firestore \
+	FIRESTORE_DATABASE_ID='(default)' \
 	uvicorn server:app --host 0.0.0.0 --port 8000 --reload
 
 # Start MLflow + MongoDB for local dev (host uses localhost URLs, not Docker service names).
 compose-up-dev:
 	DEV_MLFLOW_PORT=$(DEV_MLFLOW_PORT) DEV_MONGO_PORT=$(DEV_MONGO_PORT) $(COMPOSE) up -d mlflow mongodb
 
-# Dev: reload on code changes; in-memory DB (no MongoDB required).
-dev-server:
+# Dev: reload on code changes; local MongoDB-backed posts.
+dev-server: compose-up-dev
 	mkdir -p $$(dirname $(SERVER_LOG))
 	GCS_IMAGES_BUCKET=$(DEV_GCS_IMAGES_BUCKET) \
+	POSTS_BACKEND=mongodb \
+	MONGODB_URI=$(DEV_MONGODB_URL) \
 	SEED_POSTS=1 \
 	uvicorn server:app --host $(DEV_HOST) --port $(DEV_PORT) --reload 2>&1 | tee $(SERVER_LOG)
 
@@ -106,6 +118,7 @@ dev-server:
 dev-server-mongo: compose-up-dev
 	mkdir -p $$(dirname $(SERVER_LOG))
 	MLFLOW_TRACKING_URI=$(DEV_MLFLOW_URL) \
+	POSTS_BACKEND=mongodb \
 	MONGODB_URI=$(DEV_MONGODB_URL) \
 	GCS_IMAGES_BUCKET=$(DEV_GCS_IMAGES_BUCKET) \
 	uvicorn server:app --host $(DEV_HOST) --port $(DEV_PORT) --reload 2>&1 | tee $(SERVER_LOG)

@@ -21,7 +21,7 @@ from pydantic import BaseModel, Field, model_validator
 from pymongo import MongoClient
 from starlette.requests import Request
 
-from pkg import CloudSettings, GoogleCloudStorage
+from pkg import CloudSettings, FirestoreMongoDatabase, GoogleCloudStorage
 from pkg.gcs import api_absolute_url_for_object_key, normalize_stored_to_object_key
 from pkg.posts import InMemoryPostRepository, MongoPostRepository, Post, PostRepository
 
@@ -79,13 +79,19 @@ def _seed_posts(repo: "InMemoryPostRepository") -> None:
 async def lifespan(app: fastapi.FastAPI):
     settings = CloudSettings.from_env()
     app_state["cloud_settings"] = settings
-    if settings.mongodb_uri:
+    backend = _resolve_posts_backend(settings)
+    if backend == "mongodb":
+        if not settings.mongodb_uri:
+            raise RuntimeError("POSTS_BACKEND=mongodb requires MONGODB_URI")
         mongo_client: MongoClient[Any] = MongoClient(settings.mongodb_uri)
         app_state["mongo_client"] = mongo_client
         db_name = os.environ.get("MONGO_DATABASE", "mlops")
         app_state["post_repository"] = MongoPostRepository(
             mongo_client[db_name]["posts"]
         )
+    elif backend == "firestore":
+        db = FirestoreMongoDatabase.from_settings(settings)
+        app_state["post_repository"] = MongoPostRepository(db.collection("posts"))
     else:
         repo = InMemoryPostRepository()
         if os.environ.get("SEED_POSTS") == "1":
@@ -102,6 +108,21 @@ async def lifespan(app: fastapi.FastAPI):
     app_state.clear()
     if mongo is not None:
         mongo.close()
+
+
+def _resolve_posts_backend(settings: CloudSettings) -> str:
+    backend = settings.posts_backend
+    if backend in {"memory", "mongodb", "firestore"}:
+        return backend
+    if backend != "auto":
+        raise RuntimeError(
+            f"unsupported POSTS_BACKEND {backend!r}; expected auto, memory, mongodb, or firestore"
+        )
+    if settings.mongodb_uri:
+        return "mongodb"
+    if os.environ.get("K_SERVICE"):
+        return "firestore"
+    return "memory"
 
 
 def get_post_repo() -> PostRepository:

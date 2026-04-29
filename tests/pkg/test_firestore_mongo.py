@@ -7,6 +7,89 @@ from pkg.firestore_mongo import (
     FirestoreMongoCollection,
     FirestoreMongoDatabase,
 )
+from pkg.posts import MongoPostRepository
+
+
+class _FakeSnapshot:
+    def __init__(self, doc_id: str, data: dict | None):
+        self.id = doc_id
+        self._data = None if data is None else dict(data)
+        self.exists = data is not None
+
+    def to_dict(self):
+        return None if self._data is None else dict(self._data)
+
+
+class _FakeDocumentRef:
+    def __init__(self, collection: "_FakeCollectionRef", doc_id: str):
+        self._collection = collection
+        self.id = doc_id
+
+    def set(self, data: dict) -> None:
+        self._collection._docs[self.id] = dict(data)
+
+    def get(self) -> _FakeSnapshot:
+        return _FakeSnapshot(self.id, self._collection._docs.get(self.id))
+
+    def update(self, data: dict) -> None:
+        current = dict(self._collection._docs[self.id])
+        current.update(data)
+        self._collection._docs[self.id] = current
+
+    def delete(self) -> None:
+        self._collection._docs.pop(self.id, None)
+
+
+class _FakeQuery:
+    def __init__(
+        self,
+        collection: "_FakeCollectionRef",
+        filters: list[tuple[str, object]] | None = None,
+        limit_value: int | None = None,
+    ):
+        self._collection = collection
+        self._filters = filters or []
+        self._limit = limit_value
+
+    def where(self, *, filter) -> "_FakeQuery":
+        field_path = getattr(filter, "field_path", None) or getattr(
+            filter, "_field_path", None
+        )
+        value = getattr(filter, "value", None)
+        return _FakeQuery(
+            self._collection,
+            [*self._filters, (field_path, value)],
+            self._limit,
+        )
+
+    def limit(self, value: int) -> "_FakeQuery":
+        return _FakeQuery(self._collection, list(self._filters), value)
+
+    def stream(self):
+        rows: list[_FakeSnapshot] = []
+        for doc_id, data in self._collection._docs.items():
+            if all(data.get(field) == value for field, value in self._filters):
+                rows.append(_FakeSnapshot(doc_id, data))
+        if self._limit is not None:
+            rows = rows[: self._limit]
+        return rows
+
+
+class _FakeCollectionRef(_FakeQuery):
+    def __init__(self):
+        self._docs: dict[str, dict] = {}
+        self._counter = 0
+        super().__init__(self)
+
+    def document(self, doc_id: str) -> _FakeDocumentRef:
+        return _FakeDocumentRef(self, doc_id)
+
+    def add(self, data: dict):
+        self._counter += 1
+        doc_id = f"auto-{self._counter}"
+        ref = self.document(doc_id)
+        ref.set(data)
+        return (None, ref)
 
 
 def test_insert_one_auto_id():
@@ -171,3 +254,31 @@ def test_firestore_mongo_database_from_settings(monkeypatch):
     with patch("pkg.firestore_mongo.firestore.Client") as mock_client_cls:
         FirestoreMongoDatabase.from_settings(CloudSettings.from_env())
         mock_client_cls.assert_called_once_with(database="(default)", project="p1")
+
+
+def test_mongo_repository_works_with_firestore_collection_wrapper():
+    coll = FirestoreMongoCollection(_FakeCollectionRef())
+    repo = MongoPostRepository(coll)
+
+    created = repo.create("firestore post", description="stored in firestore")
+    assert created.name == "firestore post"
+    assert created.description == "stored in firestore"
+
+    fetched = repo.get_by_id(created.id)
+    assert fetched is not None
+    assert fetched.id == created.id
+
+    assert repo.get_by_name("firestore post") is not None
+    listed = repo.list_posts()
+    assert [p.id for p in listed] == [created.id]
+
+    updated = repo.update(created.id, name="renamed", description="updated")
+    assert updated is not None
+    assert updated.name == "renamed"
+    assert updated.description == "updated"
+
+    deleted = repo.soft_delete(created.id)
+    assert deleted is not None
+    assert deleted.deleted_at is not None
+    assert repo.get_by_id(created.id) is None
+    assert repo.get_by_id(created.id, include_deleted=True) is not None
