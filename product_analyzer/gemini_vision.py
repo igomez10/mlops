@@ -88,14 +88,34 @@ def _build_config() -> types.GenerateContentConfig:
         return types.GenerateContentConfig(response_mime_type="application/json")
 
 
+def _extract_usage(response: Any) -> dict[str, float]:
+    meta = getattr(response, "usage_metadata", None)
+    if meta is None:
+        return {}
+    out: dict[str, float] = {}
+    for src, dst in (
+        ("prompt_token_count", "prompt_tokens"),
+        ("candidates_token_count", "response_tokens"),
+        ("total_token_count", "total_tokens"),
+    ):
+        v = getattr(meta, src, None)
+        if v is not None:
+            out[dst] = float(v)
+    return out
+
+
 def call_gemini(
     image_bytes: bytes,
     mime_type: str,
     *,
     client: _GenAIClientLike | None = None,
     model: str | None = None,
-) -> str:
-    """Send one image + the extraction prompt to Gemini. Returns raw response text."""
+) -> tuple[str, dict[str, float]]:
+    """Send one image + the extraction prompt to Gemini.
+
+    Returns (raw_response_text, usage_metrics). usage_metrics is empty if the
+    SDK didn't return usage_metadata.
+    """
     gen_client = client or _build_client()
     model_name = model or _default_model()
 
@@ -120,4 +140,4 @@ def call_gemini(
     text = getattr(response, "text", None)
     if not text:
         raise RuntimeError("Gemini returned an empty response.")
-    return text
+    return text, _extract_usage(response)
