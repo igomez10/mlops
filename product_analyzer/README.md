@@ -256,6 +256,14 @@ There's no automatic grouping for this — tag the runs yourself (e.g. by
 sending images in batches and noting timestamps), or split into separate
 MLflow experiments per image type.
 
+### Tracing (Traces tab)
+
+Each request also opens one MLflow **span** around the Gemini call so it shows
+up in the Traces tab with inputs, outputs, latency, and attributes
+(`prompt_hash`, model name, MIME type, media resolution, `parse_ok`, output
+summary). Raw image bytes are not included. Tracing is best-effort — if MLflow
+is unreachable, the request still succeeds.
+
 ### Tests
 
 ```bash
@@ -264,6 +272,29 @@ pytest product_analyzer/tests/ -q
 
 23 tests covering the tracker (no-op + failure paths), the eval function
 (happy path + edge cases), and the full service flow with a mocked MLflow.
+
+Unit tests use mocks: both `call_gemini` and `mlflow` are stubbed, so tests
+never hit the real Gemini API or a real MLflow server. A green test run only
+proves the orchestration glue works.
+
+To verify the real integration end-to-end you need:
+
+1. A real `GEMINI_API_KEY` in `product_analyzer/.env` — the request actually
+   hits Google's Gemini API and uses your quota.
+2. The `MLFLOW_*` vars set so the server can reach a live MLflow instance.
+3. A real product image to POST.
+
+```bash
+curl -X POST http://127.0.0.1:8001/analyze-product-image \
+  -F "file=@product_analyzer/test_image.jpg"
+```
+
+When this succeeds you should see, in the MLflow UI:
+
+- a new **run** under the `product-analyzer` experiment with the params,
+  metrics, and artifacts described above, and
+- if tracing is enabled, a matching **trace** in the Traces tab with the
+  `gemini.generate_content` span.
 
 ## Error handling
 

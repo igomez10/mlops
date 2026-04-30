@@ -92,6 +92,60 @@ def track_run(run_name: str = "analyze-product-image") -> Iterator[RunRecorder]:
                 log.warning("mlflow flush failed (%s); request unaffected", exc)
 
 
+@contextmanager
+def start_span(
+    name: str,
+    *,
+    span_type: str = "LLM",
+    inputs: dict[str, Any] | None = None,
+    attributes: dict[str, Any] | None = None,
+) -> Iterator[Any]:
+    """Best-effort GenAI span around an LLM call.
+
+    Yields a span-like object with `set_outputs`, `set_attributes`, and
+    `record_exception` methods. If MLflow tracing is unavailable or fails,
+    yields a no-op so callers stay tracing-agnostic. Exceptions raised inside
+    the block are recorded on the span and re-raised.
+    """
+    if not _enabled():
+        yield _NoopSpan()
+        return
+
+    try:
+        import mlflow
+    except Exception as exc:  # noqa: BLE001
+        log.warning("mlflow import failed for span (%s); continuing", exc)
+        yield _NoopSpan()
+        return
+
+    try:
+        cm = mlflow.start_span(name=name, span_type=span_type, attributes=attributes)
+    except Exception as exc:  # noqa: BLE001
+        log.warning("mlflow.start_span failed (%s); continuing without span", exc)
+        yield _NoopSpan()
+        return
+
+    # mlflow.start_span auto-records exceptions and sets ERROR status;
+    # we let them propagate so callers can handle/transform them as before.
+    with cm as span:
+        try:
+            if inputs is not None:
+                span.set_inputs(inputs)
+        except Exception as exc:  # noqa: BLE001
+            log.warning("span.set_inputs failed: %s", exc)
+        yield span
+
+
+class _NoopSpan:
+    """Stand-in span used when tracing is disabled or the SDK errors out."""
+
+    def set_inputs(self, _: Any) -> None: ...
+    def set_outputs(self, _: Any) -> None: ...
+    def set_attributes(self, _: dict[str, Any]) -> None: ...
+    def set_attribute(self, _key: str, _value: Any) -> None: ...
+    def record_exception(self, _exc: BaseException) -> None: ...
+
+
 def _flush(mlflow: Any, rec: RunRecorder) -> None:
     for k, v in rec.params.items():
         try:
