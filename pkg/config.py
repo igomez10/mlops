@@ -31,8 +31,10 @@ class CloudSettings:
     gemini_api_key: str | None
     gemini_use_vertex: bool
     vertex_location: str
-    mongodb_uri: str | None = None
-    posts_backend: str = "auto"
+    mongodb_uri: str | None
+    ebay_app_id: str | None
+    ebay_cert_id: str | None
+    ebay_sandbox: bool
 
     @classmethod
     def from_env(cls) -> CloudSettings:
@@ -47,5 +49,7 @@ class CloudSettings:
             gemini_use_vertex=_env_bool("GEMINI_USE_VERTEX"),
             vertex_location=_env("GOOGLE_CLOUD_LOCATION") or "us-central1",
             mongodb_uri=_env("MONGODB_URI"),
-            posts_backend=(_env("POSTS_BACKEND") or "auto").strip().lower(),
+            ebay_app_id=_env("EBAY_APP_ID"),
+            ebay_cert_id=_env("EBAY_CERT_ID"),
+            ebay_sandbox=_env_bool("EBAY_SANDBOX", default=False),
         )

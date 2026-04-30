@@ -21,24 +21,17 @@ dependencies = [
     "testcontainers[mongodb]>=4.7.0",
     "statsmodels>=0.14.6",
     "uvicorn>=0.42.0",
-]
-
-[dependency-groups]
-dev = [
     "mypy>=1.10.0",
     "pytest-cov>=5.0.0",
     "ruff>=0.4.0",
 ]
-
-[tool.ruff]
-line-length = 120
 
 [tool.ruff.lint]
 select = ["E", "F", "I"]
 
 [tool.mypy]
 ignore_missing_imports = true
-exclude = "^(frontend|terraform)/"
+exclude = ["frontend/", "terraform/"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests", "product_analyzer/tests"]
@@ -46,4 +39,5 @@ markers = [
     "integration: requires Docker (pulls Mongo via testcontainers)",
     "e2e: exercises the HTTP API end-to-end",
     "live: hits a real server (E2E_BASE_URL, default http://127.0.0.1:8000)",
+    "sandbox: hits the real eBay sandbox API (requires EBAY_APP_ID and EBAY_CERT_ID)",
 ]

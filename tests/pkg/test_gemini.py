@@ -61,6 +61,9 @@ def test_gemini_from_settings_api_key(monkeypatch):
                 gemini_use_vertex=False,
                 vertex_location="us-central1",
                 mongodb_uri=None,
+                ebay_app_id=None,
+                ebay_cert_id=None,
+                ebay_sandbox=False,
             )
         )
         mock_cls.assert_called_once_with(api_key="k")
@@ -80,6 +83,9 @@ def test_gemini_from_settings_vertex_requires_project(monkeypatch):
         gemini_use_vertex=True,
         vertex_location="us-central1",
         mongodb_uri=None,
+        ebay_app_id=None,
+        ebay_cert_id=None,
+        ebay_sandbox=False,
     )
     with pytest.raises(ValueError, match="GOOGLE_CLOUD_PROJECT"):
         GeminiClient.from_settings(settings)
