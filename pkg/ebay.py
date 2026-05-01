@@ -37,7 +37,7 @@ class SearchResult:
 @dataclass
 class _TokenCache:
     access_token: str
-    expires_at: float  # unix timestamp
+    expires_at: float  # monotonic deadline from time.monotonic()
 
 
 @dataclass
@@ -134,12 +134,12 @@ class EbayClient:
         *,
         limit: int = 10,
         offset: int = 0,
-        filter: str | None = None,
+        filter_expr: str | None = None,
     ) -> SearchResult:
         """Search eBay listings. Returns up to `limit` item summaries."""
         params: dict[str, Any] = {"q": query, "limit": limit, "offset": offset}
-        if filter:
-            params["filter"] = filter
+        if filter_expr:
+            params["filter"] = filter_expr
         response = self._http.get(
             f"{self._browse_base}/item_summary/search",
             headers=self._auth_headers(),

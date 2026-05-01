@@ -237,7 +237,7 @@ def test_search_items_with_filter():
         _json_response(_token_response()),
         _json_response(_search_response()),
     ])
-    client.search_items("shoes", filter="price:[10..50]")
+    client.search_items("shoes", filter_expr="price:[10..50]")
 
     req = transport.requests[1]
     assert "filter=" in str(req.url)
