@@ -1,0 +1,383 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>eBay Operator — Hero</title>
+<link rel="preload" as="image" href="assets/desk-photo.jpg" />
+
+<style>
+  @font-face {
+    font-family: "Super Sans VF";
+    src: url("/projects/817a4219-0cc0-4889-87e8-a8f12b4c9e15/fonts/SuperSans-VF-Upright.woff2") format("woff2");
+    font-weight: 100 900;
+    font-style: normal;
+    font-display: swap;
+  }
+  @font-face {
+    font-family: "Super Serif VF";
+    src: url("/projects/817a4219-0cc0-4889-87e8-a8f12b4c9e15/fonts/SuperSerif-VF-Upright.woff2") format("woff2");
+    font-weight: 100 900;
+    font-style: normal;
+    font-display: swap;
+  }
+
+  :root {
+    --bg: #fcfaf7;
+    --surface: #ffffff;
+    --text: #141413;
+    --text-subdued: #73716d;
+    --border: #dedbd5;
+    --border-strong: #8d8a86;
+    --accent: #141413;
+    --success: #005c54;
+    --shadow: rgba(20,20,19,0.10);
+  }
+  [data-mode="dark"] {
+    --bg: #141413;
+    --surface: #1f1e1c;
+    --text: #fcfaf7;
+    --text-subdued: #a3a09a;
+    --border: #2e2c29;
+    --border-strong: #5a5854;
+    --accent: #fcfaf7;
+    --success: #3ac7a1;
+    --shadow: rgba(0,0,0,0.5);
+  }
+
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: "Super Sans VF", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    font-weight: 540;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  @keyframes ebop-pulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.5; transform: scale(0.85); }
+  }
+  @keyframes ebop-cursor {
+    0%, 50% { opacity: 1; }
+    51%, 100% { opacity: 0; }
+  }
+
+  /* ── Page layout ────────────────────────────────────────────────────── */
+  .page {
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .nav {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 22px 56px;
+    border-bottom: 1px solid var(--border);
+  }
+  .brand {
+    display: flex; align-items: center; gap: 10px;
+    font-weight: 700; font-size: 17px; letter-spacing: -0.01em;
+  }
+  .brand-mark {
+    width: 28px; height: 28px;
+    background: var(--accent);
+    border-radius: 6px;
+    display: inline-flex; align-items: center; justify-content: center;
+    color: var(--surface);
+    font-weight: 800; font-size: 14px;
+    letter-spacing: -0.02em;
+  }
+  .nav-links {
+    display: flex; gap: 32px;
+    font-size: 14px; color: var(--text-subdued);
+  }
+  .nav-links a { color: inherit; text-decoration: none; }
+  .nav-links a:hover { color: var(--text); }
+  .nav-cta {
+    display: flex; gap: 10px; align-items: center;
+  }
+  .btn {
+    border: none; cursor: pointer;
+    font-family: inherit; font-weight: 600; font-size: 14px;
+    padding: 10px 18px; border-radius: 8px;
+    transition: background 0.15s;
+  }
+  .btn-primary {
+    background: var(--accent); color: var(--surface);
+  }
+  .btn-primary:hover { opacity: 0.9; }
+  .btn-ghost {
+    background: transparent; color: var(--text);
+  }
+  .btn-ghost:hover { background: rgba(0,0,0,0.05); }
+  [data-mode="dark"] .btn-ghost:hover { background: rgba(255,255,255,0.06); }
+
+  .hero {
+    flex: 1;
+    display: grid;
+    grid-template-columns: minmax(320px, 480px) 1fr;
+    gap: 56px;
+    padding: 56px 56px 80px;
+    align-items: center;
+    max-width: 1640px;
+    margin: 0 auto;
+    width: 100%;
+  }
+  @media (max-width: 1100px) {
+    .hero { grid-template-columns: 1fr; padding: 40px 32px; }
+  }
+
+  .hero-copy h1 {
+    font-size: clamp(40px, 5vw, 68px);
+    line-height: 1.02;
+    letter-spacing: -0.025em;
+    font-weight: 600;
+    margin: 0 0 24px;
+  }
+  .hero-copy h1 .accent {
+    font-style: italic;
+    font-family: "Super Serif VF", Charter, serif;
+    font-weight: 500;
+  }
+  .hero-copy .eyebrow {
+    display: inline-flex; align-items: center; gap: 8px;
+    font-size: 12px; font-weight: 600; letter-spacing: 0.08em;
+    text-transform: uppercase; color: var(--text-subdued);
+    padding: 6px 12px; border: 1px solid var(--border); border-radius: 100px;
+    margin-bottom: 24px;
+  }
+  .hero-copy .eyebrow .dot {
+    width: 6px; height: 6px; border-radius: 50%; background: var(--success);
+    animation: ebop-pulse 1.4s infinite;
+  }
+  .hero-copy p {
+    font-size: 18px; line-height: 1.5;
+    color: var(--text-subdued);
+    margin: 0 0 32px;
+    max-width: 460px;
+    text-wrap: pretty;
+  }
+  .hero-cta {
+    display: flex; gap: 12px; align-items: center;
+  }
+  .hero-stats {
+    margin-top: 48px;
+    display: grid; grid-template-columns: repeat(3, auto);
+    gap: 32px;
+    border-top: 1px solid var(--border); padding-top: 24px;
+  }
+  .hero-stats .stat-num {
+    font-size: 28px; font-weight: 600; letter-spacing: -0.02em;
+  }
+  .hero-stats .stat-label {
+    font-size: 12px; color: var(--text-subdued);
+    text-transform: uppercase; letter-spacing: 0.06em;
+    margin-top: 2px;
+  }
+
+  /* ── Animation viewport ────────────────────────────────────────────── */
+  .anim-frame {
+    position: relative;
+    width: 100%;
+    aspect-ratio: 1280 / 720;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    overflow: hidden;
+    cursor: pointer;
+    box-shadow: 0 30px 80px -30px var(--shadow), 0 8px 24px -10px var(--shadow);
+  }
+  .anim-frame .replay-hint {
+    position: absolute;
+    top: 16px; right: 16px;
+    background: rgba(20,20,19,0.65);
+    color: #fff;
+    padding: 6px 10px;
+    border-radius: 100px;
+    font-size: 11px; font-weight: 600;
+    display: flex; align-items: center; gap: 6px;
+    opacity: 0;
+    transition: opacity 0.2s;
+    pointer-events: none;
+    z-index: 10;
+    backdrop-filter: blur(6px);
+  }
+  .anim-frame:hover .replay-hint { opacity: 1; }
+  .anim-frame .progress-bar {
+    position: absolute;
+    bottom: 0; left: 0; height: 2px;
+    background: var(--accent);
+    transition: width 0.05s linear;
+    z-index: 10;
+  }
+</style>
+
+<!-- Edit-mode defaults (persistable) -->
+<script>
+window.__INITIAL_TWEAKS__ = /*EDITMODE-BEGIN*/{
+  "subject": "realDesk",
+  "layout": "single",
+  "explode": "particle",
+  "dark": true,
+  "headline_main": "One photo.",
+  "headline_accent": "Dozens of listings.",
+  "headline_tail": "Sixty seconds.",
+  "subcopy": "eBay Operator detects every item in your photo, writes the listing, and posts it. Clear out a desk, a garage, a whole house — without typing a thing.",
+  "cta_primary": "Start selling",
+  "cta_secondary": "Watch the demo"
+}/*EDITMODE-END*/;
+</script>
+
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+
+</head>
+<body data-mode="light">
+<div class="page" id="root"></div>
+
+<!-- Animation primitives (Stage / Sprite / Easing / interpolate / useTime) -->
+<script type="text/babel" src="animations.jsx"></script>
+<!-- Tweaks panel helpers -->
+<script type="text/babel" src="tweaks-panel.jsx"></script>
+<!-- Item data & illustrations -->
+<script type="text/babel" src="items-data.jsx"></script>
+<!-- The hero scene -->
+<script type="text/babel" src="hero-animation.jsx"></script>
+
+<!-- App -->
+<script type="text/babel">
+const { useState, useEffect, useRef } = React;
+
+
+function App() {
+  const [tweaks, setTweak] = useTweaks(window.__INITIAL_TWEAKS__);
+  const [replayKey, setReplayKey] = useState(0);
+
+  // Apply dark mode at the document level
+  useEffect(() => {
+    document.body.setAttribute("data-mode", tweaks.dark ? "dark" : "light");
+  }, [tweaks.dark]);
+
+  const replay = () => setReplayKey((k) => k + 1);
+
+  return (
+    <>
+      <header className="nav">
+        <div className="brand">
+          <span className="brand-mark">e</span>
+          <span>eBay Operator</span>
+        </div>
+        <nav className="nav-links">
+          <a href="#how">How it works</a>
+          <a href="#pricing">Pricing</a>
+          <a href="#faq">FAQ</a>
+        </nav>
+        <div className="nav-cta">
+          <button className="btn btn-ghost">Sign in</button>
+          <button className="btn btn-primary">{tweaks.cta_primary}</button>
+        </div>
+      </header>
+
+      <section className="hero">
+        <div className="hero-copy">
+          <span className="eyebrow"><span className="dot" /> Now in private beta</span>
+          <h1>
+            {tweaks.headline_main}<br/>
+            <span className="accent">{tweaks.headline_accent}</span><br/>
+            {tweaks.headline_tail}
+          </h1>
+          <p>{tweaks.subcopy}</p>
+          <div className="hero-cta">
+            <button className="btn btn-primary" style={{ padding: "14px 24px", fontSize: 15 }}>
+              {tweaks.cta_primary} →
+            </button>
+            <button className="btn btn-ghost" style={{ padding: "14px 18px", fontSize: 15 }}>
+              {tweaks.cta_secondary}
+            </button>
+          </div>
+          <div className="hero-stats">
+            <div>
+              <div className="stat-num">62s</div>
+              <div className="stat-label">Avg. photo → posted</div>
+            </div>
+            <div>
+              <div className="stat-num">94%</div>
+              <div className="stat-label">Detection accuracy</div>
+            </div>
+            <div>
+              <div className="stat-num">$1.4M</div>
+              <div className="stat-label">Sold via Operator</div>
+            </div>
+          </div>
+        </div>
+
+        <div className="anim-frame" onClick={replay} title="Click to replay">
+          <div className="replay-hint">↻ Click to replay</div>
+          <HeroAnimation
+            subjectKey={tweaks.subject}
+            layoutMode={tweaks.layout}
+            explodeStyle={tweaks.explode}
+            dark={tweaks.dark}
+            replayKey={replayKey}
+          />
+        </div>
+      </section>
+
+      <TweaksPanel title="Tweaks">
+        <TweakSection label="Scene" />
+        <TweakSelect
+          label="Photo"
+          value={tweaks.subject}
+          onChange={(v) => { setTweak("subject", v); setReplayKey(k => k + 1); }}
+          options={[
+            { value: "realDesk", label: "Real photo (my desk)" },
+            { value: "desk", label: "Illustrated · Desk" },
+            { value: "garage", label: "Illustrated · Garage" },
+            { value: "closet", label: "Illustrated · Closet" },
+          ]}
+        />
+        <TweakRadio
+          label="Explode"
+          value={tweaks.explode}
+          onChange={(v) => { setTweak("explode", v); setReplayKey(k => k + 1); }}
+          options={[
+            { value: "scatter", label: "Scatter" },
+            { value: "grid",    label: "Snap" },
+            { value: "particle",label: "Float" },
+          ]}
+        />
+        <TweakRadio
+          label="Layout"
+          value={tweaks.layout}
+          onChange={(v) => { setTweak("layout", v); setReplayKey(k => k + 1); }}
+          options={[
+            { value: "grid",   label: "Grid" },
+            { value: "stack",  label: "Stack" },
+            { value: "single", label: "Featured" },
+          ]}
+        />
+
+        <TweakSection label="Display" />
+        <TweakToggle
+          label="Dark mode"
+          value={tweaks.dark}
+          onChange={(v) => setTweak("dark", v)}
+        />
+
+        <TweakSection label="Playback" />
+        <TweakButton label="↻ Restart animation" onClick={replay} />
+      </TweaksPanel>
+    </>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+</script>
+</body>
+</html>
