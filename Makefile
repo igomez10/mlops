@@ -25,7 +25,7 @@ AR_IMAGE := $(GCP_REGION)-docker.pkg.dev/$(GCP_PROJECT)/mlflow/mlflow:v3.10.1-fu
 FASTAPI_IMAGE := $(GCP_REGION)-docker.pkg.dev/$(GCP_PROJECT)/fastapi/fastapi:latest
 MLFLOW_VERSION := v3.10.1-full
 
-.PHONY: build run stop clean tf-plan tf-apply gcp-build-app push-mlflow push-fastapi redeploy-mlflow redeploy-fastapi deploy-fastapi-local run-fastapi run-fastapi-firestore compose-up-dev dev-server dev-server-mongo start-docker-compose frontend-install frontend-dev ui frontend-e2e vertex-upload-toy-model vertex-deploy-toy-model vertex-undeploy-toy-model
+.PHONY: build run stop clean tf-plan tf-apply gcp-build-app push-mlflow push-fastapi redeploy-mlflow redeploy-fastapi deploy-fastapi-local run-fastapi run-fastapi-firestore compose-up-dev dev-server dev-server-mongo start-docker-compose frontend-install frontend-dev ui frontend-e2e lint vertex-upload-toy-model vertex-deploy-toy-model vertex-undeploy-toy-model
 
 build-fastapi:
 	docker build -t $(FASTAPI_IMAGE) -f Dockerfile.fastapi .
@@ -138,6 +138,11 @@ ui: frontend-dev
 # Playwright starts API (in-memory Mongo) + Vite on ports 9876 / 5174 (see frontend/e2e/ports.ts).
 frontend-e2e:
 	cd frontend && CI=1 npm run test:e2e
+
+lint:
+	uv sync --frozen --group dev
+	uv run ruff check .
+	uv run mypy pkg/ server.py
 
 vertex-upload-toy-model:
 	gcloud ai models upload \
