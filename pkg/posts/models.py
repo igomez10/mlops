@@ -28,3 +28,6 @@ class Post:
     description: str = ""
     listings: list[Listing] = field(default_factory=list)
     image_urls: list[str] = field(default_factory=list)
+    # Optional Gemini product analysis attached at create time. Opaque dict so
+    # the post layer doesn't depend on the analyzer schema.
+    analysis: dict | None = None

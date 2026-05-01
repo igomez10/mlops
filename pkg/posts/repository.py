@@ -56,13 +56,16 @@ class PostRepository(Protocol):
         description: str = "",
         post_id: str | None = None,
         image_urls: list[str] | None = None,
+        analysis: dict | None = None,
     ) -> Post:
         """
         Create a post; listings are derived from ``image_urls`` (one draft listing per image).
 
-        If ``post_id`` is set (e.g. after uploading images to storage under that id), the new post
-        uses that id; otherwise an id is generated. Raises ``ValueError`` if the name is invalid
-        or not unique among active posts.
+        If ``post_id`` is set (e.g. after uploading images to storage under that
+        id), the new post uses that id; otherwise an id is generated.
+        ``analysis`` is an optional opaque dict (e.g. Gemini product analysis)
+        stored verbatim on the post. Raises ``ValueError`` if the name is
+        invalid or not unique among active posts.
         """
 
     def update(
@@ -127,6 +130,7 @@ class InMemoryPostRepository:
         description: str = "",
         post_id: str | None = None,
         image_urls: list[str] | None = None,
+        analysis: dict | None = None,
     ) -> Post:
         key = _normalize_name(name)
         if key in self._id_by_normalized_name:
@@ -147,6 +151,7 @@ class InMemoryPostRepository:
             description=desc,
             listings=listings,
             image_urls=urls,
+            analysis=analysis,
         )
         self._by_id[post.id] = post
         self._id_by_normalized_name[key] = post.id

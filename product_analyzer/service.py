@@ -26,7 +26,31 @@ async def analyze_product_image(
     token usage, parse outcome, evaluation metrics, and artifacts.
     """
     data, mime = await validate_image(upload)
+    return await analyze_product_image_bytes(
+        data,
+        mime,
+        filename=upload.filename,
+        price_estimator=price_estimator,
+    )
+
+
+async def analyze_product_image_bytes(
+    image_bytes: bytes,
+    mime_type: str,
+    *,
+    filename: str | None = None,
+    price_estimator: PriceEstimator | None = None,
+) -> AnalyzeProductImageResponse:
+    """Shared analyzer entrypoint for callers that already hold raw image bytes.
+
+    Same behavior as ``analyze_product_image`` minus the UploadFile validation
+    step (callers are expected to have validated MIME/size already). Used by
+    server.py POST /posts so the post-creation flow doesn't re-read the upload.
+    """
+    data = image_bytes
+    mime = mime_type
     _ = image_to_base64(data)
+    _ = filename  # accepted for callers; not currently logged.
 
     model_name = _default_model()
     p_hash = prompt_hash(PROMPT)

@@ -256,6 +256,36 @@ There's no automatic grouping for this — tag the runs yourself (e.g. by
 sending images in batches and noting timestamps), or split into separate
 MLflow experiments per image type.
 
+## Using the analyzer from `server.py`
+
+The Gemini + MLflow logic lives in two functions in
+[`service.py`](./service.py):
+
+- `analyze_product_image(upload, ...)` — the FastAPI route entrypoint; takes
+  an `UploadFile`, validates it, then delegates to the bytes function below.
+- `analyze_product_image_bytes(image_bytes, mime_type, *, filename=None, ...)`
+  — the **shared** entrypoint for callers that already hold raw bytes.
+
+`server.py POST /posts` imports the bytes function and calls it for the first
+JPEG/PNG upload only (one Gemini call → one MLflow run/trace per request).
+The call is wrapped in a try/except: if Gemini or MLflow fails the post is
+still created with `analysis=None`. The result, when present, is persisted on
+the `Post` (`analysis: dict | None`) and returned on the `PostResponse`.
+
+```python
+# server.py — abbreviated
+from product_analyzer.service import analyze_product_image_bytes
+
+analysis_result: dict | None = None
+try:
+    parsed = await analyze_product_image_bytes(image_bytes, image_mime)
+    analysis_result = parsed.model_dump(mode="json")
+except Exception as exc:
+    log.warning("product analysis skipped for post %s: %s", post_id, exc)
+
+post = repo.create(..., analysis=analysis_result)
+```
+
 ### Tracing (Traces tab)
 
 Each request also opens one MLflow **span** around the Gemini call so it shows
