@@ -56,8 +56,6 @@ def test_gemini_from_settings_requires_project(monkeypatch):
         gcs_images_bucket=None,
         firestore_database_id="(default)",
         gemini_model="gem-m",
-        gemini_api_key=None,
-        gemini_use_vertex=True,
         vertex_location="us-central1",
         mongodb_uri=None,
     )
@@ -74,6 +72,11 @@ def test_gemini_from_settings_uses_adc(monkeypatch):
             project="proj-x",
             location="us-central1",
         )
+
+
+def test_gemini_rejects_api_key_constructor() -> None:
+    with pytest.raises(ValueError, match="API key auth is no longer supported"):
+        GeminiClient("gemini-test", api_key="key-1")
 
 
 def patch_genai_client():

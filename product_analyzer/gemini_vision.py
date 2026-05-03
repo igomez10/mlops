@@ -52,17 +52,13 @@ class _GenAIClientLike(Protocol):
 
 
 def _cloud_project() -> str | None:
-    return (
-        os.environ.get("GOOGLE_CLOUD_PROJECT")
-        or os.environ.get("GCP_PROJECT")
-        or os.environ.get("GCLOUD_PROJECT")
-    )
+    return os.environ.get("GOOGLE_CLOUD_PROJECT") or os.environ.get("GCP_PROJECT") or os.environ.get("GCLOUD_PROJECT")
 
 
 def _build_client() -> genai.Client:
     project = _cloud_project()
     if not project:
-        raise RuntimeError("GOOGLE_CLOUD_PROJECT (or GCP_PROJECT) is required for Gemini ADC auth.")
+        raise RuntimeError("GOOGLE_CLOUD_PROJECT, GCP_PROJECT, or GCLOUD_PROJECT is required for Gemini ADC auth.")
     location = os.environ.get("GOOGLE_CLOUD_LOCATION") or "us-central1"
     return genai.Client(
         vertexai=True,

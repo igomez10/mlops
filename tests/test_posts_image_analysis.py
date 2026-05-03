@@ -63,9 +63,7 @@ def _valid_gemini_json() -> str:
 
 def _assert_live_gemini_auth_configured() -> None:
     project = (
-        os.environ.get("GOOGLE_CLOUD_PROJECT")
-        or os.environ.get("GCP_PROJECT")
-        or os.environ.get("GCLOUD_PROJECT")
+        os.environ.get("GOOGLE_CLOUD_PROJECT") or os.environ.get("GCP_PROJECT") or os.environ.get("GCLOUD_PROJECT")
     )
     if not project:
         pytest.fail("GOOGLE_CLOUD_PROJECT must be set to run live Gemini tests with ADC auth")
@@ -193,12 +191,13 @@ def test_json_post_create_does_not_call_analyzer(client: TestClient) -> None:
     """JSON posts (no images) must not trigger the analyzer."""
     spy = MagicMock()
     app_state["product_analyzer"] = _make_analyzer_mock(spy)
-
-    r = client.post("/posts", json={"name": "no-image-post"})
-    assert r.status_code == 201
-    assert r.json()["analysis"] is None
-    spy.assert_not_called()
-    app_state.pop("product_analyzer", None)
+    try:
+        r = client.post("/posts", json={"name": "no-image-post"})
+        assert r.status_code == 201
+        assert r.json()["analysis"] is None
+        spy.assert_not_called()
+    finally:
+        app_state.pop("product_analyzer", None)
 
 
 def test_post_create_persists_analysis_end_to_end_with_real_analyzer_and_mocked_gemini(

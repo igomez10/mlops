@@ -13,7 +13,7 @@ from .validation import validate_image
 
 @lru_cache(maxsize=1)
 def get_default_product_analyzer() -> ProductAnalyzer:
-    return ProductAnalyzer()
+    return ProductAnalyzer(gemini_caller=lambda image_bytes, mime_type: call_gemini(image_bytes, mime_type))
 
 
 async def analyze_product_image(
@@ -39,11 +39,7 @@ async def analyze_product_image_bytes(
     price_estimator: PriceEstimator | None = None,
 ) -> AnalyzeProductImageResponse:
     """Backward-compatible wrapper around the package default analyzer."""
-    analyzer = ProductAnalyzer(
-        gemini_caller=call_gemini,
-        price_estimator=price_estimator,
-    )
-    return await analyzer.analyze_product_image_bytes(
+    return await get_default_product_analyzer().analyze_product_image_bytes(
         image_bytes,
         mime_type,
         filename=filename,
