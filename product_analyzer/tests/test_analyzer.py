@@ -6,6 +6,7 @@ import sys
 from io import BytesIO
 from unittest.mock import MagicMock
 
+import pytest
 from starlette.datastructures import Headers
 from starlette.datastructures import UploadFile as StarletteUploadFile
 
@@ -46,14 +47,14 @@ def _valid_json() -> str:
     )
 
 
-def _install_fake_pil() -> None:
+def _make_fake_pil() -> MagicMock:
     fake_pil = MagicMock()
     fake_pil.Image.open.return_value = MagicMock()
-    sys.modules["PIL"] = fake_pil
+    return fake_pil
 
 
-def test_product_analyzer_uses_injected_price_estimator() -> None:
-    _install_fake_pil()
+def test_product_analyzer_uses_injected_price_estimator(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setitem(sys.modules, "PIL", _make_fake_pil())
 
     analyzer = ProductAnalyzer(
         gemini_caller=lambda data, mime: (_valid_json(), {"prompt_tokens": 1.0}),
@@ -68,8 +69,8 @@ def test_product_analyzer_uses_injected_price_estimator() -> None:
     assert result.price_estimate.comparable_sources == ["unit-test"]
 
 
-def test_product_analyzer_upload_entrypoint_delegates_to_bytes_path() -> None:
-    _install_fake_pil()
+def test_product_analyzer_upload_entrypoint_delegates_to_bytes_path(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setitem(sys.modules, "PIL", _make_fake_pil())
     captured = {}
 
     def _fake_gemini(data: bytes, mime: str) -> tuple[str, dict[str, float]]:
