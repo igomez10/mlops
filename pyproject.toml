@@ -41,7 +41,7 @@ ignore_missing_imports = true
 exclude = "^(frontend|terraform)/"
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+testpaths = ["tests", "product_analyzer/tests"]
 markers = [
     "integration: requires Docker (pulls Mongo via testcontainers)",
     "e2e: exercises the HTTP API end-to-end",
