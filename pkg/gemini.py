@@ -16,6 +16,8 @@ class GeminiClient:
         model: str,
         *,
         client: genai.Client | None = None,
+        api_key: str | None = None,
+        vertexai: bool | None = None,
         project: str | None = None,
         location: str | None = None,
     ) -> None:
@@ -25,6 +27,8 @@ class GeminiClient:
         if client is not None:
             self._client = client
         else:
+            if api_key is not None:
+                raise ValueError("Gemini API key auth is no longer supported; configure ADC with a GCP project.")
             if not project or not location:
                 raise ValueError("project and location are required for Gemini ADC auth")
             self._client = genai.Client(
@@ -36,7 +40,7 @@ class GeminiClient:
     @classmethod
     def from_settings(cls, settings: CloudSettings) -> GeminiClient:
         if not settings.gcp_project_id:
-            raise ValueError("GOOGLE_CLOUD_PROJECT (or GCP_PROJECT) is required for Gemini ADC auth")
+            raise ValueError("GOOGLE_CLOUD_PROJECT, GCP_PROJECT, or GCLOUD_PROJECT is required for Gemini ADC auth")
         return cls(
             settings.gemini_model,
             project=settings.gcp_project_id,
