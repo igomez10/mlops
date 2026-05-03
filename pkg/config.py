@@ -28,8 +28,6 @@ class CloudSettings:
     gcs_images_bucket: str | None
     firestore_database_id: str
     gemini_model: str
-    gemini_api_key: str | None
-    gemini_use_vertex: bool
     vertex_location: str
     mongodb_uri: str | None = None
     posts_backend: str = "auto"
@@ -43,8 +41,6 @@ class CloudSettings:
             gcs_images_bucket=_env("GCS_IMAGES_BUCKET"),
             firestore_database_id=_env("FIRESTORE_DATABASE_ID") or "(default)",
             gemini_model=_env("GEMINI_MODEL") or "gemini-2.0-flash",
-            gemini_api_key=_env("GEMINI_API_KEY"),
-            gemini_use_vertex=_env_bool("GEMINI_USE_VERTEX"),
             vertex_location=_env("GOOGLE_CLOUD_LOCATION") or "us-central1",
             mongodb_uri=_env("MONGODB_URI"),
             posts_backend=(_env("POSTS_BACKEND") or "auto").strip().lower(),

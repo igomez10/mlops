@@ -34,7 +34,7 @@ load_dotenv(dotenv_path="product_analyzer/.env")
 
 from pkg.gcs import api_absolute_url_for_object_key, normalize_stored_to_object_key  # noqa: E402
 from pkg.posts import InMemoryPostRepository, MongoPostRepository, Post, PostRepository  # noqa: E402
-from product_analyzer.service import analyze_product_image_bytes  # noqa: E402
+from product_analyzer import ProductAnalyzer  # noqa: E402
 
 # from PIL import Image
 # from transformers import pipeline
@@ -113,6 +113,7 @@ async def lifespan(app: fastapi.FastAPI):
         )
     else:
         app_state["images_storage"] = None
+    app_state["product_analyzer"] = ProductAnalyzer()
     yield
     mongo = app_state.pop("mongo_client", None)
     app_state.clear()
@@ -139,6 +140,10 @@ def get_post_repo() -> PostRepository:
 
 def get_images_storage() -> GoogleCloudStorage | None:
     return app_state.get("images_storage")
+
+
+def get_product_analyzer() -> ProductAnalyzer:
+    return app_state["product_analyzer"]
 
 
 def _images_bucket() -> str | None:
@@ -488,7 +493,7 @@ async def http_create_post(
     if first_supported is not None:
         image_bytes, image_mime = first_supported
         try:
-            parsed = await analyze_product_image_bytes(image_bytes, image_mime)
+            parsed = await get_product_analyzer().analyze_product_image_bytes(image_bytes, image_mime)
             analysis_result = parsed.model_dump(mode="json")
         except Exception as exc:  # noqa: BLE001
             log.warning("product analysis skipped for post %s: %s", post_id, exc)

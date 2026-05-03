@@ -82,11 +82,11 @@ def test_bytes_entrypoint_propagates_gemini_failure_as_502(monkeypatch):
     assert exc.value.status_code == 502
 
 
-def test_bytes_entrypoint_missing_api_key_is_503(monkeypatch):
+def test_bytes_entrypoint_missing_project_is_503(monkeypatch):
     from fastapi import HTTPException
 
     def _no_key(data, mime):
-        raise RuntimeError("GEMINI_API_KEY is not set.")
+        raise RuntimeError("GOOGLE_CLOUD_PROJECT (or GCP_PROJECT) is required for Gemini ADC auth.")
 
     monkeypatch.setattr("product_analyzer.service.call_gemini", _no_key)
 

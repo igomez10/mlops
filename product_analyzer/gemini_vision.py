@@ -7,7 +7,7 @@ from typing import Any, Protocol
 from google import genai
 from google.genai import types
 
-from product_analyzer.prompt import PROMPT
+from .prompt import PROMPT
 
 # JSON schema mirrors schema.py so Gemini returns exactly this shape.
 _RESPONSE_JSON_SCHEMA: dict[str, Any] = {
@@ -51,28 +51,30 @@ class _GenAIClientLike(Protocol):
     models: Any
 
 
-def _build_client(api_key: str | None = None) -> genai.Client:
-    key = api_key or os.environ.get("GEMINI_API_KEY")
-    if not key:
-        raise RuntimeError("GEMINI_API_KEY is not set. Put it in product_analyzer/.env or export it.")
-    # v1alpha is required for per-part media_resolution on Gemini 3.
-    return genai.Client(api_key=key, http_options={"api_version": "v1alpha"})
+def _cloud_project() -> str | None:
+    return os.environ.get("GOOGLE_CLOUD_PROJECT") or os.environ.get("GCP_PROJECT") or os.environ.get("GCLOUD_PROJECT")
+
+
+def _build_client() -> genai.Client:
+    project = _cloud_project()
+    if not project:
+        raise RuntimeError("GOOGLE_CLOUD_PROJECT, GCP_PROJECT, or GCLOUD_PROJECT is required for Gemini ADC auth.")
+    location = os.environ.get("GOOGLE_CLOUD_LOCATION") or "us-central1"
+    return genai.Client(
+        vertexai=True,
+        project=project,
+        location=location,
+    )
 
 
 def _default_model() -> str:
-    return os.environ.get("GEMINI_MODEL", "gemini-3.1-pro-preview")
+    return os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
 
 
 def _build_image_part(image_bytes: bytes, mime_type: str) -> types.Part:
-    """Inline image Part; request high media resolution when the SDK supports it."""
+    """Inline image Part."""
     blob = types.Blob(mime_type=mime_type, data=image_bytes)
-    try:
-        return types.Part(
-            inline_data=blob,
-            media_resolution={"level": "media_resolution_high"},
-        )
-    except (TypeError, ValueError):
-        return types.Part(inline_data=blob)
+    return types.Part(inline_data=blob)
 
 
 def _build_config() -> types.GenerateContentConfig:
@@ -119,6 +121,7 @@ def call_gemini(
 
     contents = [
         types.Content(
+            role="user",
             parts=[
                 types.Part(text=PROMPT),
                 _build_image_part(image_bytes, mime_type),
