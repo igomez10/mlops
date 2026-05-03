@@ -1,4 +1,5 @@
 """Unit tests for pkg.ebay — all network calls are intercepted via httpx.MockTransport."""
+
 from __future__ import annotations
 
 import base64
@@ -10,15 +11,15 @@ import pytest
 
 from pkg.config import CloudSettings
 from pkg.ebay import (
-    CategorySuggestion,
     DEFAULT_USER_SCOPES,
+    SELL_ACCOUNT_SCOPE,
+    SELL_INVENTORY_SCOPE,
+    CategorySuggestion,
     EbayClient,
     ItemSummary,
     MarketplacePolicy,
     OfferSummary,
     SearchResult,
-    SELL_ACCOUNT_SCOPE,
-    SELL_INVENTORY_SCOPE,
     ShippingServiceOption,
     _parse_summary,
 )
@@ -26,6 +27,7 @@ from pkg.ebay import (
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _settings(**overrides) -> CloudSettings:
     base = dict(
@@ -108,6 +110,7 @@ def _make_client(responses: list[httpx.Response]) -> tuple[EbayClient, _MockTran
 # Constructor validation
 # ---------------------------------------------------------------------------
 
+
 def test_requires_client_id():
     with pytest.raises(ValueError, match="client_id"):
         EbayClient("", "cert")
@@ -122,6 +125,7 @@ def test_requires_client_secret():
 # from_settings
 # ---------------------------------------------------------------------------
 
+
 def test_from_settings_creates_client():
     client = EbayClient.from_settings(_settings())
     assert client._client_id == "test-app-id"
@@ -129,10 +133,12 @@ def test_from_settings_creates_client():
 
 
 def test_sandbox_uses_sandbox_urls():
-    transport = _MockTransport([
-        _json_response(_token_response()),
-        _json_response(_search_response()),
-    ])
+    transport = _MockTransport(
+        [
+            _json_response(_token_response()),
+            _json_response(_search_response()),
+        ]
+    )
     http = httpx.Client(transport=transport)
     client = EbayClient("a", "b", sandbox=True, http_client=http)
     client.search_items("test")
@@ -142,10 +148,12 @@ def test_sandbox_uses_sandbox_urls():
 
 
 def test_production_uses_production_urls():
-    transport = _MockTransport([
-        _json_response(_token_response()),
-        _json_response(_search_response()),
-    ])
+    transport = _MockTransport(
+        [
+            _json_response(_token_response()),
+            _json_response(_search_response()),
+        ]
+    )
     http = httpx.Client(transport=transport)
     client = EbayClient("a", "b", sandbox=False, http_client=http)
     client.search_items("test")
@@ -173,11 +181,14 @@ def test_from_settings_missing_cert_id():
 # OAuth token fetching
 # ---------------------------------------------------------------------------
 
+
 def test_token_request_uses_basic_auth():
-    client, transport = _make_client([
-        _json_response(_token_response()),
-        _json_response(_search_response()),
-    ])
+    client, transport = _make_client(
+        [
+            _json_response(_token_response()),
+            _json_response(_search_response()),
+        ]
+    )
     client.search_items("laptop")
 
     token_req = transport.requests[0]
@@ -190,11 +201,13 @@ def test_token_request_uses_basic_auth():
 
 
 def test_token_is_cached_across_calls():
-    client, transport = _make_client([
-        _json_response(_token_response()),
-        _json_response(_search_response()),
-        _json_response(_search_response()),
-    ])
+    client, transport = _make_client(
+        [
+            _json_response(_token_response()),
+            _json_response(_search_response()),
+            _json_response(_search_response()),
+        ]
+    )
     client.search_items("a")
     client.search_items("b")
 
@@ -203,12 +216,14 @@ def test_token_is_cached_across_calls():
 
 
 def test_expired_token_is_refreshed(monkeypatch):
-    client, transport = _make_client([
-        _json_response(_token_response()),
-        _json_response(_search_response()),
-        _json_response(_token_response("tok-new")),
-        _json_response(_search_response()),
-    ])
+    client, transport = _make_client(
+        [
+            _json_response(_token_response()),
+            _json_response(_search_response()),
+            _json_response(_token_response("tok-new")),
+            _json_response(_search_response()),
+        ]
+    )
     client.search_items("a")
 
     # Simulate token expiry
@@ -221,10 +236,12 @@ def test_expired_token_is_refreshed(monkeypatch):
 
 
 def test_token_forwarded_as_bearer_in_search():
-    client, transport = _make_client([
-        _json_response(_token_response("my-token")),
-        _json_response(_search_response()),
-    ])
+    client, transport = _make_client(
+        [
+            _json_response(_token_response("my-token")),
+            _json_response(_search_response()),
+        ]
+    )
     client.search_items("watch")
 
     search_req = transport.requests[1]
@@ -235,11 +252,14 @@ def test_token_forwarded_as_bearer_in_search():
 # search_items
 # ---------------------------------------------------------------------------
 
+
 def test_search_items_url_and_params():
-    client, transport = _make_client([
-        _json_response(_token_response()),
-        _json_response(_search_response()),
-    ])
+    client, transport = _make_client(
+        [
+            _json_response(_token_response()),
+            _json_response(_search_response()),
+        ]
+    )
     client.search_items("iphone", limit=5, offset=10)
 
     req = transport.requests[1]
@@ -250,10 +270,12 @@ def test_search_items_url_and_params():
 
 
 def test_search_items_with_filter():
-    client, transport = _make_client([
-        _json_response(_token_response()),
-        _json_response(_search_response()),
-    ])
+    client, transport = _make_client(
+        [
+            _json_response(_token_response()),
+            _json_response(_search_response()),
+        ]
+    )
     client.search_items("shoes", filter_expr="price:[10..50]")
 
     req = transport.requests[1]
@@ -261,10 +283,12 @@ def test_search_items_with_filter():
 
 
 def test_search_items_marketplace_header():
-    transport = _MockTransport([
-        _json_response(_token_response()),
-        _json_response(_search_response()),
-    ])
+    transport = _MockTransport(
+        [
+            _json_response(_token_response()),
+            _json_response(_search_response()),
+        ]
+    )
     http = httpx.Client(transport=transport)
     client = EbayClient("a", "b", marketplace_id="EBAY_GB", http_client=http)
     client.search_items("tea")
@@ -275,10 +299,12 @@ def test_search_items_marketplace_header():
 
 def test_search_items_returns_result():
     raw = _item_summary_raw()
-    client, _ = _make_client([
-        _json_response(_token_response()),
-        _json_response(_search_response([raw], total=42)),
-    ])
+    client, _ = _make_client(
+        [
+            _json_response(_token_response()),
+            _json_response(_search_response([raw], total=42)),
+        ]
+    )
     result = client.search_items("test")
 
     assert isinstance(result, SearchResult)
@@ -296,28 +322,34 @@ def test_search_items_returns_result():
 
 
 def test_search_items_empty_response():
-    client, _ = _make_client([
-        _json_response(_token_response()),
-        _json_response({"total": 0}),
-    ])
+    client, _ = _make_client(
+        [
+            _json_response(_token_response()),
+            _json_response({"total": 0}),
+        ]
+    )
     result = client.search_items("xyzzy-nonexistent")
     assert result.total == 0
     assert result.items == []
 
 
 def test_search_items_http_error_raises():
-    client, _ = _make_client([
-        _json_response(_token_response()),
-        httpx.Response(429),
-    ])
+    client, _ = _make_client(
+        [
+            _json_response(_token_response()),
+            httpx.Response(429),
+        ]
+    )
     with pytest.raises(httpx.HTTPStatusError):
         client.search_items("fail")
 
 
 def test_http_errors_include_response_body():
-    client, _ = _make_client([
-        httpx.Response(400, json={"errors": [{"message": "Category ID is invalid"}]}),
-    ])
+    client, _ = _make_client(
+        [
+            httpx.Response(400, json={"errors": [{"message": "Category ID is invalid"}]}),
+        ]
+    )
     with pytest.raises(httpx.HTTPStatusError, match="Category ID is invalid"):
         client.create_offer("user-token-123", {"sku": "sku-1"})
 
@@ -326,11 +358,14 @@ def test_http_errors_include_response_body():
 # get_item
 # ---------------------------------------------------------------------------
 
+
 def test_get_item_url():
-    client, transport = _make_client([
-        _json_response(_token_response()),
-        _json_response({"itemId": "v1|999|0", "title": "Widget"}),
-    ])
+    client, transport = _make_client(
+        [
+            _json_response(_token_response()),
+            _json_response({"itemId": "v1|999|0", "title": "Widget"}),
+        ]
+    )
     client.get_item("v1|999|0")
 
     req = transport.requests[1]
@@ -339,19 +374,23 @@ def test_get_item_url():
 
 def test_get_item_returns_dict():
     body = {"itemId": "v1|1|0", "title": "Gadget", "price": {"value": "19.99"}}
-    client, _ = _make_client([
-        _json_response(_token_response()),
-        _json_response(body),
-    ])
+    client, _ = _make_client(
+        [
+            _json_response(_token_response()),
+            _json_response(body),
+        ]
+    )
     result = client.get_item("v1|1|0")
     assert result["title"] == "Gadget"
 
 
 def test_get_item_http_error_raises():
-    client, _ = _make_client([
-        _json_response(_token_response()),
-        httpx.Response(404),
-    ])
+    client, _ = _make_client(
+        [
+            _json_response(_token_response()),
+            httpx.Response(404),
+        ]
+    )
     with pytest.raises(httpx.HTTPStatusError):
         client.get_item("v1|bad|0")
 
@@ -436,9 +475,7 @@ def test_get_offer_returns_payload():
 
 
 def test_update_offer_puts_payload():
-    client, transport = _make_client([
-        _json_response({"offerId": "offer-123", "availableQuantity": 2})
-    ])
+    client, transport = _make_client([_json_response({"offerId": "offer-123", "availableQuantity": 2})])
 
     body = client.update_offer(
         "offer-123",
@@ -464,9 +501,7 @@ def test_delete_offer_uses_delete():
 
 
 def test_withdraw_offer_returns_response_body():
-    client, transport = _make_client([
-        _json_response({"offerId": "offer-123", "status": "UNPUBLISHED"})
-    ])
+    client, transport = _make_client([_json_response({"offerId": "offer-123", "status": "UNPUBLISHED"})])
 
     body = client.withdraw_offer("offer-123", "user-token-123")
 
@@ -477,14 +512,16 @@ def test_withdraw_offer_returns_response_body():
 
 
 def test_get_inventory_items_returns_skus_and_next():
-    client, transport = _make_client([
-        _json_response(
-            {
-                "inventoryItems": [{"sku": "sku-1"}, {"sku": "sku-2"}],
-                "next": "https://api.ebay.com/sell/inventory/v1/inventory_item?offset=2",
-            }
-        )
-    ])
+    client, transport = _make_client(
+        [
+            _json_response(
+                {
+                    "inventoryItems": [{"sku": "sku-1"}, {"sku": "sku-2"}],
+                    "next": "https://api.ebay.com/sell/inventory/v1/inventory_item?offset=2",
+                }
+            )
+        ]
+    )
 
     skus, next_url = client.get_inventory_items("user-token-123", limit=2, offset=0)
 
@@ -519,27 +556,29 @@ def test_delete_inventory_item_uses_delete():
 
 
 def test_get_offers_returns_offer_summaries():
-    client, transport = _make_client([
-        _json_response(
-            {
-                "offers": [
-                    {
-                        "sku": "sku-1",
-                        "offerId": "offer-123",
-                        "listingId": "listing-456",
-                        "marketplaceId": "EBAY_US",
-                        "format": "FIXED_PRICE",
-                        "availableQuantity": 3,
-                        "categoryId": "9355",
-                        "merchantLocationKey": "loc-1",
-                        "listingDescription": "Test listing",
-                        "status": "PUBLISHED",
-                        "pricingSummary": {"price": {"value": "19.99", "currency": "USD"}},
-                    }
-                ]
-            }
-        )
-    ])
+    client, transport = _make_client(
+        [
+            _json_response(
+                {
+                    "offers": [
+                        {
+                            "sku": "sku-1",
+                            "offerId": "offer-123",
+                            "listingId": "listing-456",
+                            "marketplaceId": "EBAY_US",
+                            "format": "FIXED_PRICE",
+                            "availableQuantity": 3,
+                            "categoryId": "9355",
+                            "merchantLocationKey": "loc-1",
+                            "listingDescription": "Test listing",
+                            "status": "PUBLISHED",
+                            "pricingSummary": {"price": {"value": "19.99", "currency": "USD"}},
+                        }
+                    ]
+                }
+            )
+        ]
+    )
 
     offers = client.get_offers("user-token-123", sku="sku-1")
 
@@ -565,10 +604,12 @@ def test_get_offers_returns_offer_summaries():
 
 
 def test_get_default_category_tree_id_uses_taxonomy_api():
-    client, transport = _make_client([
-        _json_response(_token_response("app-token")),
-        _json_response({"categoryTreeId": "0", "categoryTreeVersion": "123"}),
-    ])
+    client, transport = _make_client(
+        [
+            _json_response(_token_response("app-token")),
+            _json_response({"categoryTreeId": "0", "categoryTreeVersion": "123"}),
+        ]
+    )
 
     tree_id = client.get_default_category_tree_id(marketplace_id="EBAY_US")
 
@@ -580,28 +621,30 @@ def test_get_default_category_tree_id_uses_taxonomy_api():
 
 
 def test_get_category_suggestions_returns_summaries():
-    client, transport = _make_client([
-        _json_response(_token_response("app-token")),
-        _json_response({"categoryTreeId": "0", "categoryTreeVersion": "123"}),
-        _json_response(
-            {
-                "categoryTreeId": "0",
-                "categoryTreeVersion": "123",
-                "categorySuggestions": [
-                    {
-                        "category": {
-                            "categoryId": "9355",
-                            "categoryName": "Cell Phones & Smartphones",
-                        },
-                        "categoryTreeNodeAncestors": [
-                            {"category": {"categoryName": "Electronics"}},
-                            {"category": {"categoryName": "Cell Phones"}},
-                        ],
-                    }
-                ],
-            }
-        ),
-    ])
+    client, transport = _make_client(
+        [
+            _json_response(_token_response("app-token")),
+            _json_response({"categoryTreeId": "0", "categoryTreeVersion": "123"}),
+            _json_response(
+                {
+                    "categoryTreeId": "0",
+                    "categoryTreeVersion": "123",
+                    "categorySuggestions": [
+                        {
+                            "category": {
+                                "categoryId": "9355",
+                                "categoryName": "Cell Phones & Smartphones",
+                            },
+                            "categoryTreeNodeAncestors": [
+                                {"category": {"categoryName": "Electronics"}},
+                                {"category": {"categoryName": "Cell Phones"}},
+                            ],
+                        }
+                    ],
+                }
+            ),
+        ]
+    )
 
     suggestions = client.get_category_suggestions(
         "iphone",
@@ -626,9 +669,7 @@ def test_get_category_suggestions_returns_summaries():
 
 
 def test_get_fulfillment_policy_returns_payload():
-    client, transport = _make_client([
-        _json_response({"fulfillmentPolicyId": "policy-1", "name": "Policy 1"})
-    ])
+    client, transport = _make_client([_json_response({"fulfillmentPolicyId": "policy-1", "name": "Policy 1"})])
 
     body = client.get_fulfillment_policy("policy-1", "user-token-123")
 
@@ -639,9 +680,7 @@ def test_get_fulfillment_policy_returns_payload():
 
 
 def test_create_fulfillment_policy_posts_payload():
-    client, transport = _make_client([
-        _json_response({"fulfillmentPolicyId": "policy-1", "name": "Policy 1"})
-    ])
+    client, transport = _make_client([_json_response({"fulfillmentPolicyId": "policy-1", "name": "Policy 1"})])
 
     body = client.create_fulfillment_policy(
         "user-token-123",
@@ -656,9 +695,7 @@ def test_create_fulfillment_policy_posts_payload():
 
 
 def test_update_fulfillment_policy_puts_payload():
-    client, transport = _make_client([
-        _json_response({"fulfillmentPolicyId": "policy-1", "name": "Updated Policy"})
-    ])
+    client, transport = _make_client([_json_response({"fulfillmentPolicyId": "policy-1", "name": "Updated Policy"})])
 
     body = client.update_fulfillment_policy(
         "policy-1",
@@ -684,9 +721,9 @@ def test_delete_fulfillment_policy_uses_delete():
 
 
 def test_get_payment_policies_returns_raw_payload():
-    client, transport = _make_client([
-        _json_response({"paymentPolicies": [{"paymentPolicyId": "policy-1", "name": "Policy 1"}]})
-    ])
+    client, transport = _make_client(
+        [_json_response({"paymentPolicies": [{"paymentPolicyId": "policy-1", "name": "Policy 1"}]})]
+    )
 
     body = client.get_payment_policies_raw("user-token-123", marketplace_id="EBAY_US")
 
@@ -697,9 +734,7 @@ def test_get_payment_policies_returns_raw_payload():
 
 
 def test_get_payment_policy_returns_payload():
-    client, transport = _make_client([
-        _json_response({"paymentPolicyId": "policy-1", "name": "Policy 1"})
-    ])
+    client, transport = _make_client([_json_response({"paymentPolicyId": "policy-1", "name": "Policy 1"})])
 
     body = client.get_payment_policy("policy-1", "user-token-123")
 
@@ -709,9 +744,7 @@ def test_get_payment_policy_returns_payload():
 
 
 def test_create_payment_policy_posts_payload():
-    client, transport = _make_client([
-        _json_response({"paymentPolicyId": "policy-1", "name": "Policy 1"})
-    ])
+    client, transport = _make_client([_json_response({"paymentPolicyId": "policy-1", "name": "Policy 1"})])
 
     body = client.create_payment_policy(
         "user-token-123",
@@ -726,9 +759,7 @@ def test_create_payment_policy_posts_payload():
 
 
 def test_update_payment_policy_puts_payload():
-    client, transport = _make_client([
-        _json_response({"paymentPolicyId": "policy-1", "name": "Updated Policy"})
-    ])
+    client, transport = _make_client([_json_response({"paymentPolicyId": "policy-1", "name": "Updated Policy"})])
 
     body = client.update_payment_policy(
         "policy-1",
@@ -754,9 +785,9 @@ def test_delete_payment_policy_uses_delete():
 
 
 def test_get_return_policies_returns_raw_payload():
-    client, transport = _make_client([
-        _json_response({"returnPolicies": [{"returnPolicyId": "policy-1", "name": "Policy 1"}]})
-    ])
+    client, transport = _make_client(
+        [_json_response({"returnPolicies": [{"returnPolicyId": "policy-1", "name": "Policy 1"}]})]
+    )
 
     body = client.get_return_policies_raw("user-token-123", marketplace_id="EBAY_US")
 
@@ -767,9 +798,7 @@ def test_get_return_policies_returns_raw_payload():
 
 
 def test_get_return_policy_returns_payload():
-    client, transport = _make_client([
-        _json_response({"returnPolicyId": "policy-1", "name": "Policy 1"})
-    ])
+    client, transport = _make_client([_json_response({"returnPolicyId": "policy-1", "name": "Policy 1"})])
 
     body = client.get_return_policy("policy-1", "user-token-123")
 
@@ -779,9 +808,7 @@ def test_get_return_policy_returns_payload():
 
 
 def test_create_return_policy_posts_payload():
-    client, transport = _make_client([
-        _json_response({"returnPolicyId": "policy-1", "name": "Policy 1"})
-    ])
+    client, transport = _make_client([_json_response({"returnPolicyId": "policy-1", "name": "Policy 1"})])
 
     body = client.create_return_policy(
         "user-token-123",
@@ -796,9 +823,7 @@ def test_create_return_policy_posts_payload():
 
 
 def test_update_return_policy_puts_payload():
-    client, transport = _make_client([
-        _json_response({"returnPolicyId": "policy-1", "name": "Updated Policy"})
-    ])
+    client, transport = _make_client([_json_response({"returnPolicyId": "policy-1", "name": "Updated Policy"})])
 
     body = client.update_return_policy(
         "policy-1",
@@ -824,9 +849,7 @@ def test_delete_return_policy_uses_delete():
 
 
 def test_get_opted_in_programs_returns_programs():
-    client, transport = _make_client([
-        _json_response({"programs": [{"programType": "SELLING_POLICY_MANAGEMENT"}]})
-    ])
+    client, transport = _make_client([_json_response({"programs": [{"programType": "SELLING_POLICY_MANAGEMENT"}]})])
 
     body = client.get_opted_in_programs("user-token-123")
 
@@ -848,21 +871,23 @@ def test_opt_in_to_program_posts_payload():
 
 
 def test_get_shipping_services_returns_metadata():
-    client, transport = _make_client([
-        _json_response(_token_response("app-token")),
-        _json_response(
-            {
-                "shippingServices": [
-                    {
-                        "description": "USPS Priority Mail",
-                        "internationalService": False,
-                        "minShippingTime": 1,
-                        "maxShippingTime": 3,
-                    }
-                ]
-            }
-        ),
-    ])
+    client, transport = _make_client(
+        [
+            _json_response(_token_response("app-token")),
+            _json_response(
+                {
+                    "shippingServices": [
+                        {
+                            "description": "USPS Priority Mail",
+                            "internationalService": False,
+                            "minShippingTime": 1,
+                            "maxShippingTime": 3,
+                        }
+                    ]
+                }
+            ),
+        ]
+    )
 
     services = client.get_shipping_services(marketplace_id="EBAY_US")
 
@@ -954,18 +979,20 @@ def test_build_user_consent_url_contains_required_params():
 
 
 def test_exchange_authorization_code_posts_expected_form():
-    client, transport = _make_client([
-        _json_response(
-            {
-                "access_token": "user-access",
-                "refresh_token": "user-refresh",
-                "expires_in": 7200,
-                "refresh_token_expires_in": 47304000,
-                "scope": f"{SELL_INVENTORY_SCOPE} {SELL_ACCOUNT_SCOPE}",
-                "token_type": "User Access Token",
-            }
-        )
-    ])
+    client, transport = _make_client(
+        [
+            _json_response(
+                {
+                    "access_token": "user-access",
+                    "refresh_token": "user-refresh",
+                    "expires_in": 7200,
+                    "refresh_token_expires_in": 47304000,
+                    "scope": f"{SELL_INVENTORY_SCOPE} {SELL_ACCOUNT_SCOPE}",
+                    "token_type": "User Access Token",
+                }
+            )
+        ]
+    )
 
     body = client.exchange_authorization_code("auth-code-123", runame="my-runame")
 
@@ -980,9 +1007,7 @@ def test_exchange_authorization_code_posts_expected_form():
 
 
 def test_refresh_user_access_token_posts_expected_form():
-    client, transport = _make_client([
-        _json_response({"access_token": "user-access-2", "expires_in": 7200})
-    ])
+    client, transport = _make_client([_json_response({"access_token": "user-access-2", "expires_in": 7200})])
 
     body = client.refresh_user_access_token(
         "refresh-123",
@@ -1000,6 +1025,7 @@ def test_refresh_user_access_token_posts_expected_form():
 # ---------------------------------------------------------------------------
 # _parse_summary helper
 # ---------------------------------------------------------------------------
+
 
 def test_parse_summary_full():
     raw = _item_summary_raw()
@@ -1034,6 +1060,7 @@ def test_parse_summary_partial_price():
 # ---------------------------------------------------------------------------
 # CloudSettings env loading
 # ---------------------------------------------------------------------------
+
 
 def test_settings_from_env_ebay(monkeypatch):
     monkeypatch.setenv("EBAY_APP_ID", "env-app")

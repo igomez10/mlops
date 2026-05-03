@@ -322,7 +322,7 @@ def _build_parser() -> argparse.ArgumentParser:
         "--aspect",
         action="append",
         default=[],
-        help='Add an item aspect using NAME=VALUE. Repeat for multiple aspects or values.',
+        help="Add an item aspect using NAME=VALUE. Repeat for multiple aspects or values.",
     )
     create_parser.add_argument(
         "--aspects-file",
@@ -363,9 +363,7 @@ def _load_aspects_file(path: str) -> dict[str, list[str]]:
         if isinstance(value, list) and all(isinstance(item, str) and item for item in value):
             aspects[key] = list(value)
             continue
-        raise SystemExit(
-            "aspects file values must be strings or arrays of non-empty strings"
-        )
+        raise SystemExit("aspects file values must be strings or arrays of non-empty strings")
     return aspects
 
 
@@ -373,9 +371,7 @@ def _resolve_user_access_token(value: str | None) -> str:
     token = value or os.environ.get("EBAY_USER_ACCESS_TOKEN")
     if token:
         return token
-    raise SystemExit(
-        "user access token is required; pass --user-access-token or set EBAY_USER_ACCESS_TOKEN"
-    )
+    raise SystemExit("user access token is required; pass --user-access-token or set EBAY_USER_ACCESS_TOKEN")
 
 
 def _parse_aspect_flag(value: str) -> tuple[str, str]:
@@ -422,11 +418,7 @@ def _list_all_offers(
             offset=offset,
         )
         inventory_items = list(page.get("inventoryItems") or [])
-        skus = [
-            str(raw.get("sku") or "")
-            for raw in inventory_items
-            if str(raw.get("sku") or "")
-        ]
+        skus = [str(raw.get("sku") or "") for raw in inventory_items if str(raw.get("sku") or "")]
         next_url = str(page.get("next")) if page.get("next") else None
         for sku in skus:
             offers_body = client.get_offers_raw(user_access_token, sku=sku)
@@ -784,14 +776,9 @@ def _cmd_list_shipping_services(args: argparse.Namespace) -> int:
 def _cmd_create_listing(args: argparse.Namespace) -> int:
     user_access_token = _resolve_user_access_token(args.user_access_token)
     client = _client_from_env(marketplace_id=args.marketplace_id)
-    if any(
-        value is not None
-        for value in (args.location_city, args.location_state, args.location_country)
-    ):
+    if any(value is not None for value in (args.location_city, args.location_state, args.location_country)):
         if not all((args.location_city, args.location_state, args.location_country)):
-            raise SystemExit(
-                "--location-city, --location-state, and --location-country must be provided together"
-            )
+            raise SystemExit("--location-city, --location-state, and --location-country must be provided together")
         client.create_inventory_location(
             args.merchant_location_key,
             user_access_token,
@@ -830,9 +817,7 @@ def _cmd_create_listing(args: argparse.Namespace) -> int:
         args.sku,
         user_access_token,
         {
-            "availability": {
-                "shipToLocationAvailability": {"quantity": args.quantity}
-            },
+            "availability": {"shipToLocationAvailability": {"quantity": args.quantity}},
             "condition": args.condition,
             "product": product,
         },
@@ -847,9 +832,7 @@ def _cmd_create_listing(args: argparse.Namespace) -> int:
             "availableQuantity": args.quantity,
             "categoryId": args.category_id,
             "merchantLocationKey": args.merchant_location_key,
-            "pricingSummary": {
-                "price": {"value": f"{args.price:.2f}", "currency": args.currency}
-            },
+            "pricingSummary": {"price": {"value": f"{args.price:.2f}", "currency": args.currency}},
             "listingDescription": args.description,
             "listingPolicies": {
                 "fulfillmentPolicyId": args.fulfillment_policy_id,

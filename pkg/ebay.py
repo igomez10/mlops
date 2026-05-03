@@ -152,9 +152,7 @@ class EbayClient:
     # ------------------------------------------------------------------
 
     def _fetch_token(self) -> str:
-        credentials = base64.b64encode(
-            f"{self._client_id}:{self._client_secret}".encode()
-        ).decode()
+        credentials = base64.b64encode(f"{self._client_id}:{self._client_secret}".encode()).decode()
         response = self._http.post(
             self._token_url,
             headers={
@@ -195,9 +193,7 @@ class EbayClient:
         }
 
     def _basic_auth_header(self) -> str:
-        credentials = base64.b64encode(
-            f"{self._client_id}:{self._client_secret}".encode()
-        ).decode()
+        credentials = base64.b64encode(f"{self._client_id}:{self._client_secret}".encode()).decode()
         return f"Basic {credentials}"
 
     def _raise_for_status(self, response: httpx.Response) -> None:
@@ -473,11 +469,7 @@ class EbayClient:
             limit=limit,
             offset=offset,
         )
-        skus = [
-            str(raw.get("sku") or "")
-            for raw in body.get("inventoryItems") or []
-            if str(raw.get("sku") or "")
-        ]
+        skus = [str(raw.get("sku") or "") for raw in body.get("inventoryItems") or [] if str(raw.get("sku") or "")]
         next_url = str(body.get("next")) if body.get("next") else None
         return skus, next_url
 
@@ -559,11 +551,7 @@ class EbayClient:
             accept_language=accept_language,
         )
         tree_id = str(body.get("categoryTreeId") or "")
-        tree_version = (
-            str(body.get("categoryTreeVersion"))
-            if body.get("categoryTreeVersion") is not None
-            else None
-        )
+        tree_version = str(body.get("categoryTreeVersion")) if body.get("categoryTreeVersion") is not None else None
         return [
             _parse_category_suggestion(
                 raw,
@@ -583,9 +571,7 @@ class EbayClient:
     ) -> dict[str, Any]:
         if not query:
             raise ValueError("query is required")
-        tree_id = category_tree_id or self.get_default_category_tree_id(
-            marketplace_id=marketplace_id
-        )
+        tree_id = category_tree_id or self.get_default_category_tree_id(marketplace_id=marketplace_id)
         headers = {"Authorization": f"Bearer {self._token()}"}
         if accept_language:
             headers["Accept-Language"] = accept_language
@@ -605,10 +591,7 @@ class EbayClient:
         body = self.get_shipping_services_raw(
             marketplace_id=marketplace_id,
         )
-        return [
-            _parse_shipping_service_option(raw)
-            for raw in body.get("shippingServices") or []
-        ]
+        return [_parse_shipping_service_option(raw) for raw in body.get("shippingServices") or []]
 
     def get_shipping_services_raw(
         self,
@@ -639,15 +622,8 @@ class EbayClient:
                 policy_id=str(raw["fulfillmentPolicyId"]),
                 name=str(raw.get("name") or ""),
                 marketplace_id=str(raw.get("marketplaceId") or params_marketplace),
-                category_types=[
-                    str(item.get("name") or "")
-                    for item in raw.get("categoryTypes") or []
-                ],
-                description=(
-                    str(raw.get("description"))
-                    if raw.get("description") is not None
-                    else None
-                ),
+                category_types=[str(item.get("name") or "") for item in raw.get("categoryTypes") or []],
+                description=(str(raw.get("description")) if raw.get("description") is not None else None),
             )
             for raw in body.get("fulfillmentPolicies") or []
         ]
@@ -758,15 +734,8 @@ class EbayClient:
                 policy_id=str(raw["paymentPolicyId"]),
                 name=str(raw.get("name") or ""),
                 marketplace_id=str(raw.get("marketplaceId") or params_marketplace),
-                category_types=[
-                    str(item.get("name") or "")
-                    for item in raw.get("categoryTypes") or []
-                ],
-                description=(
-                    str(raw.get("description"))
-                    if raw.get("description") is not None
-                    else None
-                ),
+                category_types=[str(item.get("name") or "") for item in raw.get("categoryTypes") or []],
+                description=(str(raw.get("description")) if raw.get("description") is not None else None),
             )
             for raw in body.get("paymentPolicies") or []
         ]
@@ -858,15 +827,8 @@ class EbayClient:
                 policy_id=str(raw["returnPolicyId"]),
                 name=str(raw.get("name") or ""),
                 marketplace_id=str(raw.get("marketplaceId") or params_marketplace),
-                category_types=[
-                    str(item.get("name") or "")
-                    for item in raw.get("categoryTypes") or []
-                ],
-                description=(
-                    str(raw.get("description"))
-                    if raw.get("description") is not None
-                    else None
-                ),
+                category_types=[str(item.get("name") or "") for item in raw.get("categoryTypes") or []],
+                description=(str(raw.get("description")) if raw.get("description") is not None else None),
             )
             for raw in body.get("returnPolicies") or []
         ]
@@ -964,15 +926,8 @@ class EbayClient:
                 policy_id=str(raw[id_key]),
                 name=str(raw.get("name") or ""),
                 marketplace_id=str(raw.get("marketplaceId") or params["marketplace_id"]),
-                category_types=[
-                    str(item.get("name") or "")
-                    for item in raw.get("categoryTypes") or []
-                ],
-                description=(
-                    str(raw.get("description"))
-                    if raw.get("description") is not None
-                    else None
-                ),
+                category_types=[str(item.get("name") or "") for item in raw.get("categoryTypes") or []],
+                description=(str(raw.get("description")) if raw.get("description") is not None else None),
             )
             for raw in body.get(list_key, [])
         ]
@@ -1007,42 +962,20 @@ def _parse_offer(raw: dict[str, Any]) -> OfferSummary:
         listing_id=(
             str(raw.get("listingId"))
             if raw.get("listingId") is not None
-            else (
-                str(raw_listing.get("listingId"))
-                if raw_listing.get("listingId") is not None
-                else None
-            )
+            else (str(raw_listing.get("listingId")) if raw_listing.get("listingId") is not None else None)
         ),
-        marketplace_id=(
-            str(raw.get("marketplaceId"))
-            if raw.get("marketplaceId") is not None
-            else None
-        ),
+        marketplace_id=(str(raw.get("marketplaceId")) if raw.get("marketplaceId") is not None else None),
         format=str(raw.get("format")) if raw.get("format") is not None else None,
         available_quantity=int(raw_qty) if raw_qty is not None else None,
-        category_id=(
-            str(raw.get("categoryId"))
-            if raw.get("categoryId") is not None
-            else None
-        ),
+        category_id=(str(raw.get("categoryId")) if raw.get("categoryId") is not None else None),
         merchant_location_key=(
-            str(raw.get("merchantLocationKey"))
-            if raw.get("merchantLocationKey") is not None
-            else None
+            str(raw.get("merchantLocationKey")) if raw.get("merchantLocationKey") is not None else None
         ),
-        listing_description=(
-            str(raw.get("listingDescription"))
-            if raw.get("listingDescription") is not None
-            else None
-        ),
+        listing_description=(str(raw.get("listingDescription")) if raw.get("listingDescription") is not None else None),
         status=(
             str(raw.get("status"))
             if raw.get("status") is not None
-            else (
-                str(raw_listing.get("status"))
-                if raw_listing.get("status") is not None
-                else None
-            )
+            else (str(raw_listing.get("status")) if raw_listing.get("status") is not None else None)
         ),
         price=float(price_obj["value"]) if price_obj.get("value") else None,
         currency=price_obj.get("currency"),
@@ -1076,24 +1009,10 @@ def _parse_category_suggestion(
 
 def _parse_shipping_service_option(raw: dict[str, Any]) -> ShippingServiceOption:
     return ShippingServiceOption(
-        description=(
-            str(raw.get("description"))
-            if raw.get("description") is not None
-            else None
-        ),
+        description=(str(raw.get("description")) if raw.get("description") is not None else None),
         international_service=(
-            bool(raw.get("internationalService"))
-            if raw.get("internationalService") is not None
-            else None
+            bool(raw.get("internationalService")) if raw.get("internationalService") is not None else None
         ),
-        min_shipping_time=(
-            int(raw.get("minShippingTime"))
-            if raw.get("minShippingTime") is not None
-            else None
-        ),
-        max_shipping_time=(
-            int(raw.get("maxShippingTime"))
-            if raw.get("maxShippingTime") is not None
-            else None
-        ),
+        min_shipping_time=(int(raw.get("minShippingTime")) if raw.get("minShippingTime") is not None else None),
+        max_shipping_time=(int(raw.get("maxShippingTime")) if raw.get("maxShippingTime") is not None else None),
     )

@@ -56,9 +56,7 @@ def _doc_to_token(doc: dict[str, Any]) -> EbayUserToken:
         token_type=str(doc.get("token_type") or "Bearer"),
         scopes=[str(x) for x in doc.get("scopes") or []],
         expires_at=_ensure_utc(doc["expires_at"]),
-        refresh_token_expires_at=(
-            _ensure_utc(raw_refresh_expires) if raw_refresh_expires is not None else None
-        ),
+        refresh_token_expires_at=(_ensure_utc(raw_refresh_expires) if raw_refresh_expires is not None else None),
         created_at=_ensure_utc(raw_created) if raw_created is not None else None,
         updated_at=_ensure_utc(raw_updated) if raw_updated is not None else None,
     )

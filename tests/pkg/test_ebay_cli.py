@@ -229,30 +229,36 @@ def test_cli_inventory_item_commands_output_json(monkeypatch, capsys, tmp_path: 
     assert main(["get-inventory-item", "--user-access-token", "user-token-123", "--sku", "sku-1"]) == 0
     assert json.loads(capsys.readouterr().out) == {"sku": "sku-1", "condition": "NEW"}
 
-    assert main(
-        [
-            "create-inventory-item",
-            "--user-access-token",
-            "user-token-123",
-            "--sku",
-            "sku-1",
-            "--payload-file",
-            str(payload_file),
-        ]
-    ) == 0
+    assert (
+        main(
+            [
+                "create-inventory-item",
+                "--user-access-token",
+                "user-token-123",
+                "--sku",
+                "sku-1",
+                "--payload-file",
+                str(payload_file),
+            ]
+        )
+        == 0
+    )
     assert json.loads(capsys.readouterr().out) == {"created": True, "sku": "sku-1"}
 
-    assert main(
-        [
-            "update-inventory-item",
-            "--user-access-token",
-            "user-token-123",
-            "--sku",
-            "sku-1",
-            "--payload-file",
-            str(payload_file),
-        ]
-    ) == 0
+    assert (
+        main(
+            [
+                "update-inventory-item",
+                "--user-access-token",
+                "user-token-123",
+                "--sku",
+                "sku-1",
+                "--payload-file",
+                str(payload_file),
+            ]
+        )
+        == 0
+    )
     assert json.loads(capsys.readouterr().out) == {"updated": True, "sku": "sku-1"}
 
     assert main(["delete-inventory-item", "--user-access-token", "user-token-123", "--sku", "sku-1"]) == 0
@@ -304,28 +310,34 @@ def test_cli_offer_commands_output_json(monkeypatch, capsys, tmp_path: Path):
     assert main(["get-offer", "--user-access-token", "user-token-123", "--offer-id", "offer-1"]) == 0
     assert json.loads(capsys.readouterr().out) == {"offerId": "offer-1", "sku": "sku-1"}
 
-    assert main(
-        [
-            "create-offer",
-            "--user-access-token",
-            "user-token-123",
-            "--payload-file",
-            str(payload_file),
-        ]
-    ) == 0
+    assert (
+        main(
+            [
+                "create-offer",
+                "--user-access-token",
+                "user-token-123",
+                "--payload-file",
+                str(payload_file),
+            ]
+        )
+        == 0
+    )
     assert json.loads(capsys.readouterr().out) == {"offerId": "offer-1"}
 
-    assert main(
-        [
-            "update-offer",
-            "--user-access-token",
-            "user-token-123",
-            "--offer-id",
-            "offer-1",
-            "--payload-file",
-            str(payload_file),
-        ]
-    ) == 0
+    assert (
+        main(
+            [
+                "update-offer",
+                "--user-access-token",
+                "user-token-123",
+                "--offer-id",
+                "offer-1",
+                "--payload-file",
+                str(payload_file),
+            ]
+        )
+        == 0
+    )
     assert json.loads(capsys.readouterr().out) == {"offerId": "offer-1", "sku": "sku-1"}
 
     assert main(["delete-offer", "--user-access-token", "user-token-123", "--offer-id", "offer-1"]) == 0
@@ -821,9 +833,7 @@ def test_cli_requires_user_access_token_when_missing(monkeypatch):
     try:
         main(["get-opted-in-programs"])
     except SystemExit as exc:
-        assert str(exc) == (
-            "user access token is required; pass --user-access-token or set EBAY_USER_ACCESS_TOKEN"
-        )
+        assert str(exc) == ("user access token is required; pass --user-access-token or set EBAY_USER_ACCESS_TOKEN")
     else:
         raise AssertionError("expected SystemExit")
 
@@ -1055,8 +1065,6 @@ def test_cli_create_listing_requires_complete_location_tuple(monkeypatch):
             ]
         )
     except SystemExit as exc:
-        assert str(exc) == (
-            "--location-city, --location-state, and --location-country must be provided together"
-        )
+        assert str(exc) == ("--location-city, --location-state, and --location-country must be provided together")
     else:
         raise AssertionError("expected SystemExit")

@@ -5,6 +5,7 @@ Run with:
 
 Skipped automatically when EBAY_APP_ID or EBAY_CERT_ID are not set.
 """
+
 from __future__ import annotations
 
 import os
@@ -18,6 +19,7 @@ from pkg.ebay import EbayClient, ItemSummary, SearchResult
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
+
 
 def _require_env(name: str) -> str:
     value = os.environ.get(name)
@@ -39,6 +41,7 @@ def _require_listing_env() -> dict[str, str]:
         ),
     }
 
+
 def _search_or_skip(client: EbayClient, query: str, **kwargs: object) -> SearchResult:
     try:
         return client.search_items(query, **kwargs)
@@ -59,6 +62,7 @@ def client() -> EbayClient:
 # Token
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.sandbox
 def test_sandbox_token_is_fetched(client):
     token = client._token()
@@ -77,6 +81,7 @@ def test_sandbox_token_is_reused_on_second_call(client):
 # ---------------------------------------------------------------------------
 # search_items
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.sandbox
 def test_sandbox_search_returns_result(client):
@@ -125,6 +130,7 @@ def test_sandbox_search_empty_query_returns_response(client):
 # ---------------------------------------------------------------------------
 # get_item
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.sandbox
 def test_sandbox_get_item_from_search(client):
@@ -259,9 +265,7 @@ def test_sandbox_can_create_listing():
                 "availableQuantity": 1,
                 "categoryId": cfg["category_id"],
                 "merchantLocationKey": merchant_location_key,
-                "listingDescription": (
-                    "Disposable sandbox listing created by the automated Codex test."
-                ),
+                "listingDescription": ("Disposable sandbox listing created by the automated Codex test."),
                 "listingPolicies": {
                     "fulfillmentPolicyId": cfg["fulfillment_policy_id"],
                     "paymentPolicyId": cfg["payment_policy_id"],

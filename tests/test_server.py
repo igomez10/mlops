@@ -168,7 +168,7 @@ def test_ebay_callback_stores_tokens(monkeypatch):
                 "refresh_token_expires_in": 47304000,
                 "scope": f"{SELL_INVENTORY_SCOPE} {SELL_ACCOUNT_SCOPE}",
                 "token_type": "User Access Token",
-    }
+            }
 
     monkeypatch.setenv("EBAY_RUNAME", "test-runame")
     monkeypatch.setenv("EBAY_APP_ID", "test-app-id")
@@ -247,17 +247,21 @@ def test_ebay_listings_returns_aggregated_offers(monkeypatch):
         repo = InMemoryEbayTokenRepository()
         now = datetime.now(timezone.utc)
         repo.upsert(
-            type("Token", (), {
-                "user_id": "123",
-                "access_token": "user-access",
-                "refresh_token": "user-refresh",
-                "token_type": "Bearer",
-                "scopes": [SELL_INVENTORY_SCOPE, SELL_ACCOUNT_SCOPE],
-                "expires_at": now + timedelta(hours=1),
-                "refresh_token_expires_at": None,
-                "created_at": now,
-                "updated_at": now,
-            })()
+            type(
+                "Token",
+                (),
+                {
+                    "user_id": "123",
+                    "access_token": "user-access",
+                    "refresh_token": "user-refresh",
+                    "token_type": "Bearer",
+                    "scopes": [SELL_INVENTORY_SCOPE, SELL_ACCOUNT_SCOPE],
+                    "expires_at": now + timedelta(hours=1),
+                    "refresh_token_expires_at": None,
+                    "created_at": now,
+                    "updated_at": now,
+                },
+            )()
         )
         app_state["ebay_token_repository"] = repo
 
@@ -308,17 +312,21 @@ def test_ebay_listings_refreshes_expired_token(monkeypatch):
         repo = InMemoryEbayTokenRepository()
         now = datetime.now(timezone.utc)
         repo.upsert(
-            type("Token", (), {
-                "user_id": "123",
-                "access_token": "old-access",
-                "refresh_token": "refresh-123",
-                "token_type": "Bearer",
-                "scopes": [SELL_INVENTORY_SCOPE, SELL_ACCOUNT_SCOPE],
-                "expires_at": now - timedelta(minutes=1),
-                "refresh_token_expires_at": None,
-                "created_at": now - timedelta(days=1),
-                "updated_at": now - timedelta(days=1),
-            })()
+            type(
+                "Token",
+                (),
+                {
+                    "user_id": "123",
+                    "access_token": "old-access",
+                    "refresh_token": "refresh-123",
+                    "token_type": "Bearer",
+                    "scopes": [SELL_INVENTORY_SCOPE, SELL_ACCOUNT_SCOPE],
+                    "expires_at": now - timedelta(minutes=1),
+                    "refresh_token_expires_at": None,
+                    "created_at": now - timedelta(days=1),
+                    "updated_at": now - timedelta(days=1),
+                },
+            )()
         )
         app_state["ebay_token_repository"] = repo
 
