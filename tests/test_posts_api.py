@@ -192,9 +192,7 @@ def test_create_posts_wrong_content_type_415(client: TestClient) -> None:
 def test_http_posts_crud_with_mongo(mongo_container) -> None:
     uri = mongo_container.get_connection_url()
     db = f"http_posts_{uuid.uuid4().hex}"
-    with patch.dict(
-        os.environ, {"MONGODB_URI": uri, "MONGO_DATABASE": db}, clear=False
-    ):
+    with patch.dict(os.environ, {"MONGODB_URI": uri, "MONGO_DATABASE": db}, clear=False):
         with TestClient(app) as client:
             r = client.post("/posts", json={"name": "mongo-post"})
             assert r.status_code == 201

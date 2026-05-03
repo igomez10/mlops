@@ -3,6 +3,7 @@ from __future__ import annotations
 # import io
 # import torch
 # import requests
+import logging
 import mimetypes
 import os
 import re
@@ -13,6 +14,7 @@ from pathlib import Path
 from typing import Any, cast
 
 import fastapi
+from dotenv import load_dotenv
 from fastapi import Depends, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
@@ -22,13 +24,23 @@ from pymongo import MongoClient
 from starlette.requests import Request
 
 from pkg import CloudSettings, FirestoreMongoDatabase, GoogleCloudStorage
-from pkg.gcs import api_absolute_url_for_object_key, normalize_stored_to_object_key
-from pkg.posts import InMemoryPostRepository, MongoPostRepository, Post, PostRepository
+
+# Load .env files so local runs of `uvicorn server:app` pick up the same
+# config the rest of the team uses. Root .env carries GCS/Mongo settings;
+# product_analyzer/.env carries Gemini + MLflow. Existing process env wins,
+# so deployed environments (Cloud Run, CI) are unaffected.
+load_dotenv(dotenv_path=".env")
+load_dotenv(dotenv_path="product_analyzer/.env")
+
+from pkg.gcs import api_absolute_url_for_object_key, normalize_stored_to_object_key  # noqa: E402
+from pkg.posts import InMemoryPostRepository, MongoPostRepository, Post, PostRepository  # noqa: E402
+from product_analyzer.service import analyze_product_image_bytes  # noqa: E402
 
 # from PIL import Image
 # from transformers import pipeline
 
 app_state: dict[str, Any] = {}
+log = logging.getLogger(__name__)
 
 
 _SEED_POSTS = [
@@ -86,9 +98,7 @@ async def lifespan(app: fastapi.FastAPI):
         mongo_client: MongoClient[Any] = MongoClient(settings.mongodb_uri)
         app_state["mongo_client"] = mongo_client
         db_name = os.environ.get("MONGO_DATABASE", "mlops")
-        app_state["post_repository"] = MongoPostRepository(
-            mongo_client[db_name]["posts"]
-        )
+        app_state["post_repository"] = MongoPostRepository(mongo_client[db_name]["posts"])
     elif backend == "firestore":
         db = FirestoreMongoDatabase.from_settings(settings)
         app_state["post_repository"] = MongoPostRepository(db.collection("posts"))
@@ -115,9 +125,7 @@ def _resolve_posts_backend(settings: CloudSettings) -> str:
     if backend in {"memory", "mongodb", "firestore"}:
         return backend
     if backend != "auto":
-        raise RuntimeError(
-            f"unsupported POSTS_BACKEND {backend!r}; expected auto, memory, mongodb, or firestore"
-        )
+        raise RuntimeError(f"unsupported POSTS_BACKEND {backend!r}; expected auto, memory, mongodb, or firestore")
     if settings.mongodb_uri:
         return "mongodb"
     if os.environ.get("K_SERVICE"):
@@ -148,15 +156,8 @@ def _post_has_stored_image(post: Post, object_path: str, bucket: str | None) -> 
 
 app = fastapi.FastAPI(lifespan=lifespan)
 
-_default_cors = (
-    "http://localhost:5173,http://127.0.0.1:5173,"
-    "http://localhost:5174,http://127.0.0.1:5174"
-)
-_cors_origins = [
-    o.strip()
-    for o in os.environ.get("CORS_ORIGINS", _default_cors).split(",")
-    if o.strip()
-]
+_default_cors = "http://localhost:5173,http://127.0.0.1:5173,http://localhost:5174,http://127.0.0.1:5174"
+_cors_origins = [o.strip() for o in os.environ.get("CORS_ORIGINS", _default_cors).split(",") if o.strip()]
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_cors_origins,
@@ -300,6 +301,7 @@ class PostResponse(BaseModel):
     deleted_at: datetime | None = None
     listings: list[ListingResponse] = Field(default_factory=list)
     image_urls: list[str] = Field(default_factory=list)
+    analysis: dict | None = None
 
     @classmethod
     def from_post(
@@ -332,6 +334,7 @@ class PostResponse(BaseModel):
                 for L in post.listings
             ],
             image_urls=[_img_url(u) for u in post.image_urls],
+            analysis=post.analysis,
         )
 
 
@@ -342,11 +345,20 @@ _MAX_IMAGE_BYTES = 12 * 1024 * 1024
 _MAX_IMAGE_FILES = 24
 
 
+_ANALYZER_SUPPORTED_TYPES = frozenset(("image/jpeg", "image/png"))
+
+
 async def _upload_image_files_to_gcs(
     post_id: str, uploads: list[UploadFile], storage: GoogleCloudStorage
-) -> list[str]:
-    """Upload images to private GCS; returns object keys (``posts/...``), not public URLs."""
+) -> tuple[list[str], tuple[bytes, str] | None]:
+    """Upload images to private GCS.
+
+    Returns ``(object_keys, first_supported)`` where ``first_supported`` is the
+    bytes + MIME of the first JPEG/PNG upload (or ``None``) so the caller can
+    pass it to the product analyzer without re-reading the form.
+    """
     object_keys: list[str] = []
+    first_supported: tuple[bytes, str] | None = None
     for upload in uploads:
         data = await upload.read()
         if len(data) == 0:
@@ -367,11 +379,11 @@ async def _upload_image_files_to_gcs(
         if ext in (".jpe",):
             ext = ".jpg"
         object_name = f"posts/{post_id}/{uuid.uuid4().hex}{ext}"
-        storage.upload_bytes(
-            object_name, data, content_type=ct or "application/octet-stream"
-        )
+        storage.upload_bytes(object_name, data, content_type=ct or "application/octet-stream")
         object_keys.append(object_name)
-    return object_keys
+        if first_supported is None and ct in _ANALYZER_SUPPORTED_TYPES:
+            first_supported = (data, ct)
+    return object_keys, first_supported
 
 
 @app.get("/posts", response_model=list[PostResponse] | PostResponse)
@@ -389,9 +401,7 @@ def http_get_posts(
             raise HTTPException(status_code=404, detail="post not found")
         return PostResponse.from_post(post, public_base=base, images_bucket=bkt)
     posts = repo.list_posts(include_deleted=include_deleted)
-    return [
-        PostResponse.from_post(p, public_base=base, images_bucket=bkt) for p in posts
-    ]
+    return [PostResponse.from_post(p, public_base=base, images_bucket=bkt) for p in posts]
 
 
 @app.get("/posts/{post_id}", response_model=PostResponse)
@@ -456,9 +466,7 @@ async def http_create_post(
         if k == "files" and not isinstance(v, str):
             file_uploads.append(cast(UploadFile, v))
     if not file_uploads:
-        raise HTTPException(
-            status_code=422, detail="at least one image file is required"
-        )
+        raise HTTPException(status_code=422, detail="at least one image file is required")
 
     storage = get_images_storage()
     if storage is None:
@@ -473,7 +481,17 @@ async def http_create_post(
         )
     # Upload to bucket first, then persist post with the same id used for object paths
     post_id = str(uuid.uuid4())
-    urls = await _upload_image_files_to_gcs(post_id, file_uploads, storage)
+    urls, first_supported = await _upload_image_files_to_gcs(post_id, file_uploads, storage)
+    # Best-effort product analysis on the first JPEG/PNG. Failures must never
+    # block post creation — log and proceed with analysis=None.
+    analysis_result: dict | None = None
+    if first_supported is not None:
+        image_bytes, image_mime = first_supported
+        try:
+            parsed = await analyze_product_image_bytes(image_bytes, image_mime)
+            analysis_result = parsed.model_dump(mode="json")
+        except Exception as exc:  # noqa: BLE001
+            log.warning("product analysis skipped for post %s: %s", post_id, exc)
     internal_name = f"p-{post_id.replace('-', '')[:16]}"
     try:
         post = repo.create(
@@ -481,6 +499,7 @@ async def http_create_post(
             description=body_desc.strip(),
             post_id=post_id,
             image_urls=urls,
+            analysis=analysis_result,
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
@@ -565,9 +584,7 @@ def create_posts(req: CreatePostsRequest) -> dict:
     database.append(req)
     # Here you would add logic to process the images and create posts on the specified platform.
     # For this example, we'll just return a success message.
-    return {
-        "message": f"Posts created successfully for user {req.user_id} on {req.platform}."
-    }
+    return {"message": f"Posts created successfully for user {req.user_id} on {req.platform}."}
 
 
 @app.get("/get_posts")
@@ -577,9 +594,7 @@ def get_posts():
 
 def _configure_static_ui() -> None:
     """After production Docker build, ``static/index.html`` exists. Otherwise JSON welcome at ``/``."""
-    static_root = Path(
-        os.environ.get("STATIC_DIR", str(Path(__file__).resolve().parent / "static"))
-    )
+    static_root = Path(os.environ.get("STATIC_DIR", str(Path(__file__).resolve().parent / "static")))
     if (static_root / "index.html").is_file():
         app.mount(
             "/",

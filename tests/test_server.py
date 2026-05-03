@@ -1,8 +1,8 @@
 import pytest
 from fastapi.testclient import TestClient
 
-from server import CreatePostsRequest, _resolve_posts_backend, app
 from pkg.config import CloudSettings
+from server import CreatePostsRequest, _resolve_posts_backend, app
 
 
 @pytest.fixture

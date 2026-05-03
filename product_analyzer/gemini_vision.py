@@ -54,9 +54,7 @@ class _GenAIClientLike(Protocol):
 def _build_client(api_key: str | None = None) -> genai.Client:
     key = api_key or os.environ.get("GEMINI_API_KEY")
     if not key:
-        raise RuntimeError(
-            "GEMINI_API_KEY is not set. Put it in product_analyzer/.env or export it."
-        )
+        raise RuntimeError("GEMINI_API_KEY is not set. Put it in product_analyzer/.env or export it.")
     # v1alpha is required for per-part media_resolution on Gemini 3.
     return genai.Client(api_key=key, http_options={"api_version": "v1alpha"})
 
@@ -88,14 +86,34 @@ def _build_config() -> types.GenerateContentConfig:
         return types.GenerateContentConfig(response_mime_type="application/json")
 
 
+def _extract_usage(response: Any) -> dict[str, float]:
+    meta = getattr(response, "usage_metadata", None)
+    if meta is None:
+        return {}
+    out: dict[str, float] = {}
+    for src, dst in (
+        ("prompt_token_count", "prompt_tokens"),
+        ("candidates_token_count", "response_tokens"),
+        ("total_token_count", "total_tokens"),
+    ):
+        v = getattr(meta, src, None)
+        if v is not None:
+            out[dst] = float(v)
+    return out
+
+
 def call_gemini(
     image_bytes: bytes,
     mime_type: str,
     *,
     client: _GenAIClientLike | None = None,
     model: str | None = None,
-) -> str:
-    """Send one image + the extraction prompt to Gemini. Returns raw response text."""
+) -> tuple[str, dict[str, float]]:
+    """Send one image + the extraction prompt to Gemini.
+
+    Returns (raw_response_text, usage_metrics). usage_metrics is empty if the
+    SDK didn't return usage_metadata.
+    """
     gen_client = client or _build_client()
     model_name = model or _default_model()
 
@@ -111,7 +129,7 @@ def call_gemini(
     try:
         response = gen_client.models.generate_content(
             model=model_name,
-            contents=contents,
+            contents=contents,  # type: ignore[arg-type]
             config=_build_config(),
         )
     except Exception as exc:  # noqa: BLE001
@@ -120,4 +138,4 @@ def call_gemini(
     text = getattr(response, "text", None)
     if not text:
         raise RuntimeError("Gemini returned an empty response.")
-    return text
+    return text, _extract_usage(response)

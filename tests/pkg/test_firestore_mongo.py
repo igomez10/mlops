@@ -52,9 +52,7 @@ class _FakeQuery:
         self._limit = limit_value
 
     def where(self, *, filter) -> "_FakeQuery":
-        field_path = getattr(filter, "field_path", None) or getattr(
-            filter, "_field_path", None
-        )
+        field_path = getattr(filter, "field_path", None) or getattr(filter, "_field_path", None)
         value = getattr(filter, "value", None)
         return _FakeQuery(
             self._collection,

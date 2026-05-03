@@ -52,6 +52,8 @@ def _doc_to_post(doc: dict[str, Any]) -> Post:
     raw_images = doc.get("image_urls")
     image_urls = [str(u) for u in raw_images] if raw_images else []
     raw_desc = doc.get("description")
+    raw_analysis = doc.get("analysis")
+    analysis = raw_analysis if isinstance(raw_analysis, dict) else None
     return Post(
         id=doc["_id"],
         name=doc["name"],
@@ -61,6 +63,7 @@ def _doc_to_post(doc: dict[str, Any]) -> Post:
         description=str(raw_desc) if raw_desc is not None else "",
         listings=listings,
         image_urls=image_urls,
+        analysis=analysis,
     )
 
 
@@ -128,6 +131,7 @@ class MongoPostRepository:
         description: str = "",
         post_id: str | None = None,
         image_urls: list[str] | None = None,
+        analysis: dict | None = None,
     ) -> Post:
         key = _normalize_name(name)
         if self._has_active_name_conflict(key):
@@ -158,6 +162,7 @@ class MongoPostRepository:
             "description": desc,
             "listings": raw_listings,
             "image_urls": urls,
+            "analysis": analysis,
         }
         try:
             self._coll.insert_one(doc)
@@ -190,9 +195,7 @@ class MongoPostRepository:
                 {"$set": to_set},
             )
         except DuplicateKeyError as exc:
-            raise ValueError(
-                f"a post with name {to_set.get('name', '')!r} already exists"
-            ) from exc
+            raise ValueError(f"a post with name {to_set.get('name', '')!r} already exists") from exc
         if res.matched_count == 0:
             return None
         doc = self._coll.find_one({"_id": post_id})
