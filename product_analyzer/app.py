@@ -4,10 +4,10 @@ from __future__ import annotations
 from dotenv import load_dotenv
 from fastapi import FastAPI
 
-from product_analyzer.router import router
+from .router import router
 
-# Load GEMINI_API_KEY (and optional GEMINI_MODEL) from product_analyzer/.env
-# so `uvicorn product_analyzer.app:app` Just Works after copying .env.example.
+# Load optional local config like GOOGLE_CLOUD_PROJECT / GEMINI_MODEL so
+# `uvicorn product_analyzer.app:app` works in local development.
 load_dotenv(dotenv_path="product_analyzer/.env")
 
 app = FastAPI(title="Product Analyzer MVP")

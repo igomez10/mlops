@@ -45,33 +45,10 @@ def test_gemini_generate_text_empty_when_no_text():
     assert g.generate_text("x") == ""
 
 
-def test_gemini_from_settings_api_key(monkeypatch):
-    monkeypatch.setenv("GEMINI_API_KEY", "k")
-    monkeypatch.delenv("GEMINI_USE_VERTEX", raising=False)
-
-    with patch_genai_client() as mock_cls:
-        GeminiClient.from_settings(
-            CloudSettings(
-                gcp_project_id=None,
-                gcs_bucket=None,
-                gcs_images_bucket=None,
-                firestore_database_id="(default)",
-                gemini_model="gem-m",
-                gemini_api_key="k",
-                gemini_use_vertex=False,
-                vertex_location="us-central1",
-                mongodb_uri=None,
-                ebay_app_id=None,
-                ebay_cert_id=None,
-                ebay_sandbox=False,
-            )
-        )
-        mock_cls.assert_called_once_with(api_key="k")
-
-
-def test_gemini_from_settings_vertex_requires_project(monkeypatch):
+def test_gemini_from_settings_requires_project(monkeypatch):
     monkeypatch.delenv("GCP_PROJECT", raising=False)
     monkeypatch.delenv("GOOGLE_CLOUD_PROJECT", raising=False)
+    monkeypatch.delenv("GCLOUD_PROJECT", raising=False)
 
     settings = CloudSettings(
         gcp_project_id=None,
@@ -79,8 +56,6 @@ def test_gemini_from_settings_vertex_requires_project(monkeypatch):
         gcs_images_bucket=None,
         firestore_database_id="(default)",
         gemini_model="gem-m",
-        gemini_api_key=None,
-        gemini_use_vertex=True,
         vertex_location="us-central1",
         mongodb_uri=None,
         ebay_app_id=None,
@@ -91,10 +66,8 @@ def test_gemini_from_settings_vertex_requires_project(monkeypatch):
         GeminiClient.from_settings(settings)
 
 
-def test_gemini_from_settings_vertex(monkeypatch):
+def test_gemini_from_settings_uses_adc(monkeypatch):
     monkeypatch.setenv("GCP_PROJECT", "proj-x")
-    monkeypatch.setenv("GEMINI_USE_VERTEX", "true")
-
     with patch_genai_client() as mock_cls:
         GeminiClient.from_settings(CloudSettings.from_env())
         mock_cls.assert_called_once_with(
@@ -102,6 +75,11 @@ def test_gemini_from_settings_vertex(monkeypatch):
             project="proj-x",
             location="us-central1",
         )
+
+
+def test_gemini_rejects_api_key_constructor() -> None:
+    with pytest.raises(ValueError, match="API key auth is no longer supported"):
+        GeminiClient("gemini-test", api_key="key-1")
 
 
 def patch_genai_client():

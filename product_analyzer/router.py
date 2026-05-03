@@ -3,8 +3,8 @@ from __future__ import annotations
 
 from fastapi import APIRouter, File, UploadFile
 
-from product_analyzer.schema import AnalyzeProductImageResponse
-from product_analyzer.service import analyze_product_image
+from .schema import AnalyzeProductImageResponse
+from .service import analyze_product_image
 
 router = APIRouter()
 

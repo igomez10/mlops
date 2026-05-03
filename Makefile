@@ -13,6 +13,7 @@ DEV_MLFLOW_URL := http://127.0.0.1:$(DEV_MLFLOW_PORT)
 DEV_MONGODB_URL := mongodb://127.0.0.1:$(DEV_MONGO_PORT)
 
 COMPOSE := docker compose
+LOAD_DOTENV = if [ -f .env ]; then set -a; . ./.env; set +a; fi;
 
 GCP_REGION := us-central1
 GCP_PROJECT := mlops-492103
@@ -105,14 +106,15 @@ deploy-fastapi-local: push-fastapi redeploy-fastapi
 deploy-fastapi-dev-local: push-fastapi-dev redeploy-fastapi-dev
 
 run-fastapi:
-	set -a; . ./.env; set +a; \
+	$(LOAD_DOTENV) \
+	GOOGLE_CLOUD_PROJECT=$(GCP_PROJECT) \
 	GCS_IMAGES_BUCKET=$(DEV_GCS_IMAGES_BUCKET) \
 	POSTS_BACKEND=mongodb \
 	MONGODB_URI=$(DEV_MONGODB_URL) \
 	uvicorn server:app --host 0.0.0.0 --port 8000 --reload
 
 run-fastapi-firestore:
-	set -a; . ./.env; set +a; \
+	$(LOAD_DOTENV) \
 	GCS_IMAGES_BUCKET=$(DEV_GCS_IMAGES_BUCKET) \
 	GOOGLE_CLOUD_PROJECT=$(GCP_PROJECT) \
 	POSTS_BACKEND=firestore \
@@ -126,7 +128,8 @@ compose-up-dev:
 # Dev: reload on code changes; local MongoDB-backed posts.
 dev-server: compose-up-dev
 	mkdir -p $$(dirname $(SERVER_LOG))
-	set -a; . ./.env; set +a; \
+	$(LOAD_DOTENV) \
+	GOOGLE_CLOUD_PROJECT=$(GCP_PROJECT) \
 	GCS_IMAGES_BUCKET=$(DEV_GCS_IMAGES_BUCKET) \
 	POSTS_BACKEND=mongodb \
 	MONGODB_URI=$(DEV_MONGODB_URL) \
@@ -136,7 +139,8 @@ dev-server: compose-up-dev
 # Dev: same as dev-server but backed by MongoDB (starts Docker Compose services first).
 dev-server-mongo: compose-up-dev
 	mkdir -p $$(dirname $(SERVER_LOG))
-	set -a; . ./.env; set +a; \
+	$(LOAD_DOTENV) \
+	GOOGLE_CLOUD_PROJECT=$(GCP_PROJECT) \
 	MLFLOW_TRACKING_URI=$(DEV_MLFLOW_URL) \
 	POSTS_BACKEND=mongodb \
 	MONGODB_URI=$(DEV_MONGODB_URL) \

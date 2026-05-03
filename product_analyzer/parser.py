@@ -6,7 +6,7 @@ import re
 
 from pydantic import ValidationError
 
-from product_analyzer.schema import AnalyzeProductImageResponse
+from .schema import AnalyzeProductImageResponse
 
 _FENCE_RE = re.compile(r"^```(?:json)?\s*|\s*```$", re.IGNORECASE | re.MULTILINE)
 

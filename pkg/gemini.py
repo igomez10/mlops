@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 from typing import TYPE_CHECKING
 
 from google import genai
@@ -18,7 +17,7 @@ class GeminiClient:
         *,
         client: genai.Client | None = None,
         api_key: str | None = None,
-        vertexai: bool = False,
+        vertexai: bool | None = None,
         project: str | None = None,
         location: str | None = None,
     ) -> None:
@@ -27,32 +26,26 @@ class GeminiClient:
         self._model = model
         if client is not None:
             self._client = client
-        elif vertexai:
+        else:
+            if api_key is not None:
+                raise ValueError("Gemini API key auth is no longer supported; configure ADC with a GCP project.")
             if not project or not location:
-                raise ValueError("project and location are required when vertexai=True")
+                raise ValueError("project and location are required for Gemini ADC auth")
             self._client = genai.Client(
                 vertexai=True,
                 project=project,
                 location=location,
             )
-        else:
-            key = api_key or os.environ.get("GEMINI_API_KEY")
-            if not key:
-                raise ValueError("Gemini API key is required (pass api_key or set GEMINI_API_KEY)")
-            self._client = genai.Client(api_key=key)
 
     @classmethod
     def from_settings(cls, settings: CloudSettings) -> GeminiClient:
-        if settings.gemini_use_vertex:
-            if not settings.gcp_project_id:
-                raise ValueError("GOOGLE_CLOUD_PROJECT (or GCP_PROJECT) is required when GEMINI_USE_VERTEX is true")
-            return cls(
-                settings.gemini_model,
-                vertexai=True,
-                project=settings.gcp_project_id,
-                location=settings.vertex_location,
-            )
-        return cls(settings.gemini_model, api_key=settings.gemini_api_key)
+        if not settings.gcp_project_id:
+            raise ValueError("GOOGLE_CLOUD_PROJECT, GCP_PROJECT, or GCLOUD_PROJECT is required for Gemini ADC auth")
+        return cls(
+            settings.gemini_model,
+            project=settings.gcp_project_id,
+            location=settings.vertex_location,
+        )
 
     @property
     def model(self) -> str:

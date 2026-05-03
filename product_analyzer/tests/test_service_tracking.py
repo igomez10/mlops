@@ -83,7 +83,7 @@ def test_happy_path_logs_full_run(monkeypatch, _mlflow_env):
     assert params["mime"] == "image/jpeg"
     assert params["image_size_bytes"] == len(_FAKE_JPEG)
     assert "prompt_hash" in params and len(params["prompt_hash"]) == 12
-    assert params["media_resolution"] == "media_resolution_high"
+    assert params["media_resolution"] == "default"
 
     metrics = _metric_calls(fake_mlflow)
     assert metrics["parse_ok"] == 1.0
@@ -143,9 +143,9 @@ def test_parse_failure_logs_zero_eval(monkeypatch, _mlflow_env):
     assert "parsed_output.json" not in texts
 
 
-def test_missing_api_key_returns_503(monkeypatch, _mlflow_env):
+def test_missing_project_returns_503(monkeypatch, _mlflow_env):
     def _no_key(data, mime):
-        raise RuntimeError("GEMINI_API_KEY is not set.")
+        raise RuntimeError("GOOGLE_CLOUD_PROJECT (or GCP_PROJECT) is required for Gemini ADC auth.")
 
     monkeypatch.setattr("product_analyzer.service.call_gemini", _no_key)
 
