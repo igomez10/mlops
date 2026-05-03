@@ -36,11 +36,7 @@ class CloudSettings:
 
     @classmethod
     def from_env(cls) -> CloudSettings:
-        project = (
-            _env("GOOGLE_CLOUD_PROJECT")
-            or _env("GCP_PROJECT")
-            or _env("GCLOUD_PROJECT")
-        )
+        project = _env("GOOGLE_CLOUD_PROJECT") or _env("GCP_PROJECT") or _env("GCLOUD_PROJECT")
         return cls(
             gcp_project_id=project,
             gcs_bucket=_env("GCS_BUCKET"),

@@ -46,9 +46,7 @@ def _make_storage_mock() -> MagicMock:
     return store
 
 
-def test_post_create_attaches_analysis_from_shared_function(
-    client: TestClient, monkeypatch
-) -> None:
+def test_post_create_attaches_analysis_from_shared_function(client: TestClient, monkeypatch) -> None:
     """The /posts handler should call analyze_product_image_bytes for the first
     JPEG/PNG and persist the result on the post."""
     called = {}
@@ -78,9 +76,7 @@ def test_post_create_attaches_analysis_from_shared_function(
         app_state["images_storage"] = None
 
 
-def test_post_create_succeeds_when_analyzer_raises(
-    client: TestClient, monkeypatch
-) -> None:
+def test_post_create_succeeds_when_analyzer_raises(client: TestClient, monkeypatch) -> None:
     """Gemini/MLflow failure must not block post creation; analysis stays None."""
 
     async def _boom(image_bytes, mime_type, *, filename=None, price_estimator=None):
@@ -103,9 +99,7 @@ def test_post_create_succeeds_when_analyzer_raises(
         app_state["images_storage"] = None
 
 
-def test_post_create_skips_analyzer_for_unsupported_mime(
-    client: TestClient, monkeypatch
-) -> None:
+def test_post_create_skips_analyzer_for_unsupported_mime(client: TestClient, monkeypatch) -> None:
     """webp/gif uploads are stored but not analyzed; no analyzer call should happen."""
     spy = MagicMock()
 
@@ -129,9 +123,7 @@ def test_post_create_skips_analyzer_for_unsupported_mime(
         app_state["images_storage"] = None
 
 
-def test_post_create_uses_first_jpeg_png_when_mixed(
-    client: TestClient, monkeypatch
-) -> None:
+def test_post_create_uses_first_jpeg_png_when_mixed(client: TestClient, monkeypatch) -> None:
     """When uploads include both unsupported and supported types, only the
     first JPEG/PNG should be analyzed (one call total)."""
     captured = []
@@ -161,9 +153,7 @@ def test_post_create_uses_first_jpeg_png_when_mixed(
         app_state["images_storage"] = None
 
 
-def test_json_post_create_does_not_call_analyzer(
-    client: TestClient, monkeypatch
-) -> None:
+def test_json_post_create_does_not_call_analyzer(client: TestClient, monkeypatch) -> None:
     """JSON posts (no images) must not trigger the analyzer."""
     spy = MagicMock()
     monkeypatch.setattr("server.analyze_product_image_bytes", spy)

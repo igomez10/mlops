@@ -10,7 +10,6 @@ from fastapi.testclient import TestClient
 
 from product_analyzer.app import app
 
-
 VALID_JSON = json.dumps(
     {
         "product_name": "Sony WH-1000XM4",

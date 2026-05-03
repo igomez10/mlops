@@ -18,9 +18,7 @@ def _normalize_name(name: str) -> str:
     return cleaned
 
 
-def _synthetic_listings_for_new_post(
-    caption: str, image_urls: list[str], now: datetime
-) -> list[Listing]:
+def _synthetic_listings_for_new_post(caption: str, image_urls: list[str], now: datetime) -> list[Listing]:
     """Server-generated draft listings, one per uploaded image (no user-provided fields)."""
     cap = caption if caption else "post"
     return [

@@ -60,9 +60,7 @@ class GoogleCloudStorage:
         blob.delete()
 
 
-def normalize_stored_to_object_key(
-    stored: str, images_bucket: str | None
-) -> str:
+def normalize_stored_to_object_key(stored: str, images_bucket: str | None) -> str:
     """
     Return the GCS object key for this post (``posts/<id>/...``).
 

@@ -38,18 +38,14 @@ class GeminiClient:
         else:
             key = api_key or os.environ.get("GEMINI_API_KEY")
             if not key:
-                raise ValueError(
-                    "Gemini API key is required (pass api_key or set GEMINI_API_KEY)"
-                )
+                raise ValueError("Gemini API key is required (pass api_key or set GEMINI_API_KEY)")
             self._client = genai.Client(api_key=key)
 
     @classmethod
     def from_settings(cls, settings: CloudSettings) -> GeminiClient:
         if settings.gemini_use_vertex:
             if not settings.gcp_project_id:
-                raise ValueError(
-                    "GOOGLE_CLOUD_PROJECT (or GCP_PROJECT) is required when GEMINI_USE_VERTEX is true"
-                )
+                raise ValueError("GOOGLE_CLOUD_PROJECT (or GCP_PROJECT) is required when GEMINI_USE_VERTEX is true")
             return cls(
                 settings.gemini_model,
                 vertexai=True,

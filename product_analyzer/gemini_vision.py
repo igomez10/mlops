@@ -54,9 +54,7 @@ class _GenAIClientLike(Protocol):
 def _build_client(api_key: str | None = None) -> genai.Client:
     key = api_key or os.environ.get("GEMINI_API_KEY")
     if not key:
-        raise RuntimeError(
-            "GEMINI_API_KEY is not set. Put it in product_analyzer/.env or export it."
-        )
+        raise RuntimeError("GEMINI_API_KEY is not set. Put it in product_analyzer/.env or export it.")
     # v1alpha is required for per-part media_resolution on Gemini 3.
     return genai.Client(api_key=key, http_options={"api_version": "v1alpha"})
 

@@ -94,11 +94,13 @@ async def analyze_product_image_bytes(
                 rec.set_metric("latency_seconds", latency)
                 rec.set_metric("parse_ok", 0.0)
                 rec.update_metrics(evaluate("", None))
-                span.set_attributes({
-                    "latency_seconds": latency,
-                    "error.stage": "gemini_call",
-                    "error.message": str(exc),
-                })
+                span.set_attributes(
+                    {
+                        "latency_seconds": latency,
+                        "error.stage": "gemini_call",
+                        "error.message": str(exc),
+                    }
+                )
                 message = str(exc)
                 if "GEMINI_API_KEY" in message:
                     raise HTTPException(status_code=503, detail=message) from exc
@@ -114,17 +116,21 @@ async def analyze_product_image_bytes(
             except ValueError as exc:
                 rec.set_metric("parse_ok", 0.0)
                 rec.update_metrics(evaluate(raw, None))
-                span.set_outputs({
-                    "raw_preview": raw[:500],
-                    "parse_ok": False,
-                })
-                span.set_attributes({
-                    "latency_seconds": latency,
-                    "parse_ok": False,
-                    "error.stage": "parse",
-                    "error.message": str(exc),
-                    **{f"gen_ai.usage.{k}": v for k, v in usage.items()},
-                })
+                span.set_outputs(
+                    {
+                        "raw_preview": raw[:500],
+                        "parse_ok": False,
+                    }
+                )
+                span.set_attributes(
+                    {
+                        "latency_seconds": latency,
+                        "parse_ok": False,
+                        "error.stage": "parse",
+                        "error.message": str(exc),
+                        **{f"gen_ai.usage.{k}": v for k, v in usage.items()},
+                    }
+                )
                 raise HTTPException(
                     status_code=502,
                     detail=f"Could not parse Gemini response: {exc}",
@@ -136,18 +142,22 @@ async def analyze_product_image_bytes(
             rec.update_metrics(evaluate(raw, parsed_dict))
             rec.set_text("parsed_output.json", analysis.model_dump_json(indent=2))
 
-            span.set_outputs({
-                "parse_ok": True,
-                "product_name": parsed_dict.get("product_name"),
-                "brand": parsed_dict.get("brand"),
-                "category": parsed_dict.get("category"),
-                "confidence": parsed_dict.get("confidence"),
-            })
-            span.set_attributes({
-                "latency_seconds": latency,
-                "parse_ok": True,
-                **{f"gen_ai.usage.{k}": v for k, v in usage.items()},
-            })
+            span.set_outputs(
+                {
+                    "parse_ok": True,
+                    "product_name": parsed_dict.get("product_name"),
+                    "brand": parsed_dict.get("brand"),
+                    "category": parsed_dict.get("category"),
+                    "confidence": parsed_dict.get("confidence"),
+                }
+            )
+            span.set_attributes(
+                {
+                    "latency_seconds": latency,
+                    "parse_ok": True,
+                    **{f"gen_ai.usage.{k}": v for k, v in usage.items()},
+                }
+            )
 
         estimator: PriceEstimator = price_estimator or GeminiPriceEstimator()
         analysis.price_estimate = estimator.estimate(analysis)

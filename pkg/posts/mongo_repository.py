@@ -195,9 +195,7 @@ class MongoPostRepository:
                 {"$set": to_set},
             )
         except DuplicateKeyError as exc:
-            raise ValueError(
-                f"a post with name {to_set.get('name', '')!r} already exists"
-            ) from exc
+            raise ValueError(f"a post with name {to_set.get('name', '')!r} already exists") from exc
         if res.matched_count == 0:
             return None
         doc = self._coll.find_one({"_id": post_id})

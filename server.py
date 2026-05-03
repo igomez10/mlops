@@ -32,9 +32,9 @@ from pkg import CloudSettings, FirestoreMongoDatabase, GoogleCloudStorage
 load_dotenv(dotenv_path=".env")
 load_dotenv(dotenv_path="product_analyzer/.env")
 
-from pkg.gcs import api_absolute_url_for_object_key, normalize_stored_to_object_key
-from pkg.posts import InMemoryPostRepository, MongoPostRepository, Post, PostRepository
-from product_analyzer.service import analyze_product_image_bytes
+from pkg.gcs import api_absolute_url_for_object_key, normalize_stored_to_object_key  # noqa: E402
+from pkg.posts import InMemoryPostRepository, MongoPostRepository, Post, PostRepository  # noqa: E402
+from product_analyzer.service import analyze_product_image_bytes  # noqa: E402
 
 # from PIL import Image
 # from transformers import pipeline

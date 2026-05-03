@@ -15,7 +15,6 @@ import pytest
 
 from product_analyzer.service import analyze_product_image_bytes
 
-
 VALID_JSON = json.dumps(
     {
         "product_name": "Sony WH-1000XM4",
@@ -52,9 +51,7 @@ def test_bytes_entrypoint_returns_parsed_response(monkeypatch):
         lambda data, mime: (VALID_JSON, {"prompt_tokens": 10, "response_tokens": 5}),
     )
 
-    result = asyncio.run(
-        analyze_product_image_bytes(b"\xff\xd8\xff fake jpeg", "image/jpeg")
-    )
+    result = asyncio.run(analyze_product_image_bytes(b"\xff\xd8\xff fake jpeg", "image/jpeg"))
 
     assert result.product_name == "Sony WH-1000XM4"
     assert result.brand == "Sony"
@@ -68,11 +65,7 @@ def test_bytes_entrypoint_accepts_filename_kwarg(monkeypatch):
         lambda data, mime: (VALID_JSON, {}),
     )
     # filename is accepted but doesn't change behavior — just shouldn't raise.
-    result = asyncio.run(
-        analyze_product_image_bytes(
-            b"\xff\xd8\xff", "image/jpeg", filename="phone.jpg"
-        )
-    )
+    result = asyncio.run(analyze_product_image_bytes(b"\xff\xd8\xff", "image/jpeg", filename="phone.jpg"))
     assert result.product_name == "Sony WH-1000XM4"
 
 
@@ -117,6 +110,7 @@ def test_existing_upload_endpoint_still_uses_shared_function(monkeypatch):
             AnalyzeProductImageResponse,
             PriceEstimate,
         )
+
         return AnalyzeProductImageResponse(
             product_name="x",
             brand="x",
@@ -125,14 +119,10 @@ def test_existing_upload_endpoint_still_uses_shared_function(monkeypatch):
             condition_estimate="x",
             visible_text=[],
             confidence=0.5,
-            price_estimate=PriceEstimate(
-                low=1, high=2, currency="USD", reasoning="r", comparable_sources=[]
-            ),
+            price_estimate=PriceEstimate(low=1, high=2, currency="USD", reasoning="r", comparable_sources=[]),
         )
 
-    monkeypatch.setattr(
-        "product_analyzer.service.analyze_product_image_bytes", _spy
-    )
+    monkeypatch.setattr("product_analyzer.service.analyze_product_image_bytes", _spy)
 
     from io import BytesIO
 

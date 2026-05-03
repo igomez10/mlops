@@ -9,7 +9,6 @@ import pytest
 from product_analyzer.gemini_vision import _extract_usage
 from product_analyzer.tracking import RunRecorder, prompt_hash, track_run
 
-
 # --- _enabled / no-op behavior --------------------------------------------------
 
 
