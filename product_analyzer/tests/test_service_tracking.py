@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import sys
 from io import BytesIO
+from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
@@ -46,7 +47,7 @@ def _mlflow_env(monkeypatch):
     yield fake_mlflow
 
 
-def _post_image(client: TestClient) -> "TestClient.response_class":
+def _post_image(client: TestClient) -> Any:
     return client.post(
         "/analyze-product-image",
         files={"file": ("test.jpg", BytesIO(_FAKE_JPEG), "image/jpeg")},

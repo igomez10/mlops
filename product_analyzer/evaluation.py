@@ -18,7 +18,7 @@ def _has_valid_price_range(price: Any) -> bool:
         return False
     if not (isinstance(low, Real) and isinstance(high, Real)):
         return False
-    return low > 0 and high > 0 and low <= high
+    return float(low) > 0 and float(high) > 0 and float(low) <= float(high)
 
 
 def evaluate(raw_text: str, parsed: dict | None) -> dict[str, float]:

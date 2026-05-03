@@ -162,10 +162,10 @@ def _flush(mlflow: Any, rec: RunRecorder) -> None:
             mlflow.log_text(body, name)
         except Exception as exc:  # noqa: BLE001
             log.warning("log_text %s failed: %s", name, exc)
-    for name, body in rec.image_artifacts.items():
+    for name, img_body in rec.image_artifacts.items():
         try:
             from PIL import Image
 
-            mlflow.log_image(Image.open(BytesIO(body)), name)
+            mlflow.log_image(Image.open(BytesIO(img_body)), name)
         except Exception as exc:  # noqa: BLE001
             log.warning("log_image %s failed: %s", name, exc)

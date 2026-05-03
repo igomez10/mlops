@@ -129,7 +129,7 @@ def call_gemini(
     try:
         response = gen_client.models.generate_content(
             model=model_name,
-            contents=contents,
+            contents=contents,  # type: ignore[arg-type]
             config=_build_config(),
         )
     except Exception as exc:  # noqa: BLE001
