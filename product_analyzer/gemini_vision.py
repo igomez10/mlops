@@ -68,7 +68,7 @@ def _build_client() -> genai.Client:
 
 
 def _default_model() -> str:
-    return os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
+    return os.environ.get("GEMINI_MODEL", "gemini-2.0-flash")
 
 
 def _build_image_part(image_bytes: bytes, mime_type: str) -> types.Part:
