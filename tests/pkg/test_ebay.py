@@ -36,8 +36,6 @@ def _settings(**overrides) -> CloudSettings:
         gcs_images_bucket=None,
         firestore_database_id="(default)",
         gemini_model="gemini-2.0-flash",
-        gemini_api_key=None,
-        gemini_use_vertex=False,
         vertex_location="us-central1",
         mongodb_uri=None,
         ebay_app_id="test-app-id",
