@@ -1,11 +1,15 @@
 # niki
 """Standalone MVP: one image in -> structured product details + price estimate out."""
 
-from product_analyzer.schema import AnalyzeProductImageResponse, PriceEstimate
-from product_analyzer.service import analyze_product_image
+from .analyzer import ProductAnalyzer
+from .schema import AnalyzeProductImageResponse, PriceEstimate
+from .service import analyze_product_image, analyze_product_image_bytes, get_default_product_analyzer
 
 __all__ = [
+    "ProductAnalyzer",
     "AnalyzeProductImageResponse",
     "PriceEstimate",
     "analyze_product_image",
+    "analyze_product_image_bytes",
+    "get_default_product_analyzer",
 ]

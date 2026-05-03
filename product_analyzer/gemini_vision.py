@@ -7,7 +7,7 @@ from typing import Any, Protocol
 from google import genai
 from google.genai import types
 
-from product_analyzer.prompt import PROMPT
+from .prompt import PROMPT
 
 # JSON schema mirrors schema.py so Gemini returns exactly this shape.
 _RESPONSE_JSON_SCHEMA: dict[str, Any] = {

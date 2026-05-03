@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from typing import Protocol
 
-from product_analyzer.schema import AnalyzeProductImageResponse, PriceEstimate
+from .schema import AnalyzeProductImageResponse, PriceEstimate
 
 
 class PriceEstimator(Protocol):
