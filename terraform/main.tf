@@ -4,13 +4,59 @@
 # Variables are declared in variables.tf and set in terraform.tfvars.
 
 locals {
-  # CORS: local Vite (5173/5174). Deployed app is same origin as the API, so no extra origin.
-  fastapi_cors_origins = join(",", [
-    "http://localhost:5173",
-    "http://127.0.0.1:5173",
-    "http://localhost:5174",
-    "http://127.0.0.1:5174",
-  ])
+  fastapi_cors_origins = "*"
+
+  fastapi_env = [
+    {
+      name  = "MLFLOW_TRACKING_URI"
+      value = google_cloud_run_v2_service.mlflow.uri
+    },
+    {
+      name  = "MLFLOW_MODEL_URI"
+      value = "runs:/6736c234459f44769f3475477b730f89/model"
+    },
+    {
+      name  = "GCS_IMAGES_BUCKET"
+      value = google_storage_bucket.mlops_images.name
+    },
+    {
+      name  = "GOOGLE_CLOUD_PROJECT"
+      value = var.project_id
+    },
+    {
+      name  = "POSTS_BACKEND"
+      value = "firestore"
+    },
+    {
+      name  = "FIRESTORE_DATABASE_ID"
+      value = google_firestore_database.default.name
+    },
+    {
+      name  = "CORS_ORIGINS"
+      value = local.fastapi_cors_origins
+    },
+    {
+      name  = "EBAY_RUNAME"
+      value = "ignacio_gomez-ignaciog-test-S-mfabetwed"
+    },
+    {
+      name  = "EBAY_SANDBOX"
+      value = "true"
+    },
+  ]
+
+  fastapi_secret_env = [
+    {
+      name    = "EBAY_APP_ID"
+      secret  = google_secret_manager_secret.fastapi_ebay_app_id.secret_id
+      version = "latest"
+    },
+    {
+      name    = "EBAY_CERT_ID"
+      secret  = google_secret_manager_secret.fastapi_ebay_cert_id.secret_id
+      version = "latest"
+    },
+  ]
 }
 
 resource "google_storage_bucket" "terraform_state" {
@@ -32,6 +78,11 @@ resource "google_storage_bucket" "terraform_state" {
 resource "google_project_service" "firestore" {
   project = var.project_id
   service = "firestore.googleapis.com"
+}
+
+resource "google_project_service" "secretmanager" {
+  project = var.project_id
+  service = "secretmanager.googleapis.com"
 }
 
 resource "google_firestore_database" "default" {
@@ -166,10 +217,53 @@ resource "google_service_account" "fastapi" {
   display_name = "FastAPI Cloud Run Service Account"
 }
 
+resource "google_secret_manager_secret" "fastapi_ebay_app_id" {
+  project   = var.project_id
+  secret_id = "fastapi-ebay-app-id"
+
+  replication {
+    auto {}
+  }
+
+  depends_on = [google_project_service.secretmanager]
+}
+
+resource "google_secret_manager_secret" "fastapi_ebay_cert_id" {
+  project   = var.project_id
+  secret_id = "fastapi-ebay-cert-id"
+
+  replication {
+    auto {}
+  }
+
+  depends_on = [google_project_service.secretmanager]
+}
+
 resource "google_project_iam_member" "fastapi_firestore_user" {
   project = var.project_id
   role    = "roles/datastore.user"
   member  = "serviceAccount:${google_service_account.fastapi.email}"
+}
+
+resource "google_secret_manager_secret_iam_member" "fastapi_ebay_app_id_accessor" {
+  project   = var.project_id
+  secret_id = google_secret_manager_secret.fastapi_ebay_app_id.secret_id
+  role      = "roles/secretmanager.secretAccessor"
+  member    = "serviceAccount:${google_service_account.fastapi.email}"
+}
+
+resource "google_secret_manager_secret_iam_member" "fastapi_ebay_cert_id_accessor" {
+  project   = var.project_id
+  secret_id = google_secret_manager_secret.fastapi_ebay_cert_id.secret_id
+  role      = "roles/secretmanager.secretAccessor"
+  member    = "serviceAccount:${google_service_account.fastapi.email}"
+}
+
+resource "google_artifact_registry_repository_iam_member" "fastapi_ar_reader" {
+  location   = var.region
+  repository = google_artifact_registry_repository.fastapi.repository_id
+  role       = "roles/artifactregistry.reader"
+  member     = "serviceAccount:${google_service_account.fastapi.email}"
 }
 
 resource "google_storage_bucket_iam_member" "fastapi_artifacts_reader" {
@@ -207,39 +301,25 @@ resource "google_cloud_run_v2_service" "fastapi" {
     containers {
       image = "${var.region}-docker.pkg.dev/${var.project_id}/fastapi/fastapi:latest"
 
-      env {
-        name  = "MLFLOW_TRACKING_URI"
-        value = google_cloud_run_v2_service.mlflow.uri
+      dynamic "env" {
+        for_each = local.fastapi_env
+        content {
+          name  = env.value.name
+          value = env.value.value
+        }
       }
 
-      env {
-        name  = "MLFLOW_MODEL_URI"
-        value = "runs:/6736c234459f44769f3475477b730f89/model"
-      }
-
-      env {
-        name  = "GCS_IMAGES_BUCKET"
-        value = google_storage_bucket.mlops_images.name
-      }
-
-      env {
-        name  = "GOOGLE_CLOUD_PROJECT"
-        value = var.project_id
-      }
-
-      env {
-        name  = "POSTS_BACKEND"
-        value = "firestore"
-      }
-
-      env {
-        name  = "FIRESTORE_DATABASE_ID"
-        value = google_firestore_database.default.name
-      }
-
-      env {
-        name  = "CORS_ORIGINS"
-        value = local.fastapi_cors_origins
+      dynamic "env" {
+        for_each = local.fastapi_secret_env
+        content {
+          name = env.value.name
+          value_source {
+            secret_key_ref {
+              secret  = env.value.secret
+              version = env.value.version
+            }
+          }
+        }
       }
 
       resources {
@@ -260,6 +340,63 @@ resource "google_cloud_run_v2_service" "fastapi" {
 
 resource "google_cloud_run_v2_service_iam_member" "fastapi_public" {
   name     = google_cloud_run_v2_service.fastapi.name
+  location = var.region
+  role     = "roles/run.invoker"
+  member   = "allUsers"
+}
+
+resource "google_cloud_run_v2_service" "fastapi_dev" {
+  name                = "fastapi-dev"
+  location            = var.region
+  deletion_protection = false
+
+  depends_on = [google_firestore_database.default]
+
+  template {
+    service_account = google_service_account.fastapi.email
+
+    containers {
+      image = "${var.region}-docker.pkg.dev/${var.project_id}/fastapi/fastapi-ignacio:latest"
+
+      dynamic "env" {
+        for_each = local.fastapi_env
+        content {
+          name  = env.value.name
+          value = env.value.value
+        }
+      }
+
+      dynamic "env" {
+        for_each = local.fastapi_secret_env
+        content {
+          name = env.value.name
+          value_source {
+            secret_key_ref {
+              secret  = env.value.secret
+              version = env.value.version
+            }
+          }
+        }
+      }
+
+      resources {
+        cpu_idle          = true
+        startup_cpu_boost = true
+        limits = {
+          memory = "512Mi"
+          cpu    = "1"
+        }
+      }
+
+      ports {
+        container_port = 8000
+      }
+    }
+  }
+}
+
+resource "google_cloud_run_v2_service_iam_member" "fastapi_dev_public" {
+  name     = google_cloud_run_v2_service.fastapi_dev.name
   location = var.region
   role     = "roles/run.invoker"
   member   = "allUsers"

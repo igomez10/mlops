@@ -1,0 +1,32 @@
+{
+  "name": "Codex Sandbox Fulfillment Policy",
+  "description": "Test fulfillment policy created from CLI",
+  "marketplaceId": "EBAY_US",
+  "categoryTypes": [
+    {
+      "name": "ALL_EXCLUDING_MOTORS_VEHICLES"
+    }
+  ],
+  "handlingTime": {
+    "unit": "DAY",
+    "value": 1
+  },
+  "shippingOptions": [
+    {
+      "costType": "FLAT_RATE",
+      "optionType": "DOMESTIC",
+      "shippingServices": [
+        {
+          "buyerResponsibleForShipping": false,
+          "freeShipping": true,
+          "shippingCarrierCode": "USPS",
+          "shippingServiceCode": "USPSPriorityFlatRateBox",
+          "shippingCost": {
+            "currency": "USD",
+            "value": "0.0"
+          }
+        }
+      ]
+    }
+  ]
+}

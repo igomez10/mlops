@@ -126,8 +126,8 @@ def test_existing_upload_endpoint_still_uses_shared_function(monkeypatch):
 
     from io import BytesIO
 
+    from fastapi import UploadFile as StarletteUploadFile
     from starlette.datastructures import Headers
-    from starlette.datastructures import UploadFile as StarletteUploadFile
 
     upload = StarletteUploadFile(
         filename="a.jpg",

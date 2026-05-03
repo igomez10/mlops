@@ -3,12 +3,25 @@ from __future__ import annotations
 
 import base64
 import time
+from urllib.parse import parse_qs, urlparse
 
 import httpx
 import pytest
 
 from pkg.config import CloudSettings
-from pkg.ebay import EbayClient, ItemSummary, SearchResult, _parse_summary
+from pkg.ebay import (
+    CategorySuggestion,
+    DEFAULT_USER_SCOPES,
+    EbayClient,
+    ItemSummary,
+    MarketplacePolicy,
+    OfferSummary,
+    SearchResult,
+    SELL_ACCOUNT_SCOPE,
+    SELL_INVENTORY_SCOPE,
+    ShippingServiceOption,
+    _parse_summary,
+)
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -78,6 +91,10 @@ class _MockTransport(httpx.MockTransport):
 
 def _json_response(body: dict, status_code: int = 200) -> httpx.Response:
     return httpx.Response(status_code, json=body)
+
+
+def _empty_response(status_code: int = 204) -> httpx.Response:
+    return httpx.Response(status_code)
 
 
 def _make_client(responses: list[httpx.Response]) -> tuple[EbayClient, _MockTransport]:
@@ -297,6 +314,14 @@ def test_search_items_http_error_raises():
         client.search_items("fail")
 
 
+def test_http_errors_include_response_body():
+    client, _ = _make_client([
+        httpx.Response(400, json={"errors": [{"message": "Category ID is invalid"}]}),
+    ])
+    with pytest.raises(httpx.HTTPStatusError, match="Category ID is invalid"):
+        client.create_offer("user-token-123", {"sku": "sku-1"})
+
+
 # ---------------------------------------------------------------------------
 # get_item
 # ---------------------------------------------------------------------------
@@ -329,6 +354,647 @@ def test_get_item_http_error_raises():
     ])
     with pytest.raises(httpx.HTTPStatusError):
         client.get_item("v1|bad|0")
+
+
+# ---------------------------------------------------------------------------
+# Inventory API helpers
+# ---------------------------------------------------------------------------
+
+
+def test_create_inventory_location_uses_seller_headers_and_payload():
+    client, transport = _make_client([_empty_response()])
+
+    client.create_inventory_location(
+        "loc-1",
+        "user-token-123",
+        {
+            "name": "loc-1",
+            "merchantLocationStatus": "ENABLED",
+            "locationTypes": ["WAREHOUSE"],
+            "location": {"address": {"city": "San Jose", "stateOrProvince": "CA", "country": "US"}},
+        },
+    )
+
+    req = transport.requests[0]
+    assert req.method == "POST"
+    assert "/sell/inventory/v1/location/loc-1" in str(req.url)
+    assert req.headers["Authorization"] == "Bearer user-token-123"
+    assert req.headers["Content-Type"] == "application/json"
+    assert req.headers["Content-Language"] == "en-US"
+    assert b'"name":"loc-1"' in req.content
+
+
+def test_create_or_replace_inventory_item_uses_put():
+    client, transport = _make_client([_empty_response()])
+
+    client.create_or_replace_inventory_item(
+        "sku-1",
+        "user-token-123",
+        {"condition": "NEW", "availability": {"shipToLocationAvailability": {"quantity": 1}}},
+    )
+
+    req = transport.requests[0]
+    assert req.method == "PUT"
+    assert "/sell/inventory/v1/inventory_item/sku-1" in str(req.url)
+    assert b'"condition":"NEW"' in req.content
+
+
+def test_create_offer_returns_offer_id():
+    client, transport = _make_client([_json_response({"offerId": "offer-123"})])
+
+    offer_id = client.create_offer(
+        "user-token-123",
+        {"sku": "sku-1", "marketplaceId": "EBAY_US", "format": "FIXED_PRICE"},
+    )
+
+    req = transport.requests[0]
+    assert req.method == "POST"
+    assert "/sell/inventory/v1/offer" in str(req.url)
+    assert offer_id == "offer-123"
+
+
+def test_publish_offer_returns_response_body():
+    client, transport = _make_client([_json_response({"listingId": "listing-123"})])
+
+    body = client.publish_offer("offer-123", "user-token-123")
+
+    req = transport.requests[0]
+    assert req.method == "POST"
+    assert "/sell/inventory/v1/offer/offer-123/publish" in str(req.url)
+    assert body["listingId"] == "listing-123"
+
+
+def test_get_offer_returns_payload():
+    client, transport = _make_client([_json_response({"offerId": "offer-123", "sku": "sku-1"})])
+
+    body = client.get_offer("offer-123", "user-token-123")
+
+    req = transport.requests[0]
+    assert req.method == "GET"
+    assert "/sell/inventory/v1/offer/offer-123" in str(req.url)
+    assert body["offerId"] == "offer-123"
+
+
+def test_update_offer_puts_payload():
+    client, transport = _make_client([
+        _json_response({"offerId": "offer-123", "availableQuantity": 2})
+    ])
+
+    body = client.update_offer(
+        "offer-123",
+        "user-token-123",
+        {"sku": "sku-1", "marketplaceId": "EBAY_US", "format": "FIXED_PRICE"},
+    )
+
+    req = transport.requests[0]
+    assert req.method == "PUT"
+    assert "/sell/inventory/v1/offer/offer-123" in str(req.url)
+    assert b'"sku":"sku-1"' in req.content
+    assert body["offerId"] == "offer-123"
+
+
+def test_delete_offer_uses_delete():
+    client, transport = _make_client([_empty_response()])
+
+    client.delete_offer("offer-123", "user-token-123")
+
+    req = transport.requests[0]
+    assert req.method == "DELETE"
+    assert "/sell/inventory/v1/offer/offer-123" in str(req.url)
+
+
+def test_withdraw_offer_returns_response_body():
+    client, transport = _make_client([
+        _json_response({"offerId": "offer-123", "status": "UNPUBLISHED"})
+    ])
+
+    body = client.withdraw_offer("offer-123", "user-token-123")
+
+    req = transport.requests[0]
+    assert req.method == "POST"
+    assert "/sell/inventory/v1/offer/offer-123/withdraw" in str(req.url)
+    assert body["status"] == "UNPUBLISHED"
+
+
+def test_get_inventory_items_returns_skus_and_next():
+    client, transport = _make_client([
+        _json_response(
+            {
+                "inventoryItems": [{"sku": "sku-1"}, {"sku": "sku-2"}],
+                "next": "https://api.ebay.com/sell/inventory/v1/inventory_item?offset=2",
+            }
+        )
+    ])
+
+    skus, next_url = client.get_inventory_items("user-token-123", limit=2, offset=0)
+
+    req = transport.requests[0]
+    assert "/sell/inventory/v1/inventory_item" in str(req.url)
+    assert "limit=2" in str(req.url)
+    assert "offset=0" in str(req.url)
+    assert req.headers["Authorization"] == "Bearer user-token-123"
+    assert skus == ["sku-1", "sku-2"]
+    assert next_url == "https://api.ebay.com/sell/inventory/v1/inventory_item?offset=2"
+
+
+def test_get_inventory_item_returns_payload():
+    client, transport = _make_client([_json_response({"sku": "sku-1", "condition": "NEW"})])
+
+    body = client.get_inventory_item("sku-1", "user-token-123")
+
+    req = transport.requests[0]
+    assert req.method == "GET"
+    assert "/sell/inventory/v1/inventory_item/sku-1" in str(req.url)
+    assert body["sku"] == "sku-1"
+
+
+def test_delete_inventory_item_uses_delete():
+    client, transport = _make_client([_empty_response()])
+
+    client.delete_inventory_item("sku-1", "user-token-123")
+
+    req = transport.requests[0]
+    assert req.method == "DELETE"
+    assert "/sell/inventory/v1/inventory_item/sku-1" in str(req.url)
+
+
+def test_get_offers_returns_offer_summaries():
+    client, transport = _make_client([
+        _json_response(
+            {
+                "offers": [
+                    {
+                        "sku": "sku-1",
+                        "offerId": "offer-123",
+                        "listingId": "listing-456",
+                        "marketplaceId": "EBAY_US",
+                        "format": "FIXED_PRICE",
+                        "availableQuantity": 3,
+                        "categoryId": "9355",
+                        "merchantLocationKey": "loc-1",
+                        "listingDescription": "Test listing",
+                        "status": "PUBLISHED",
+                        "pricingSummary": {"price": {"value": "19.99", "currency": "USD"}},
+                    }
+                ]
+            }
+        )
+    ])
+
+    offers = client.get_offers("user-token-123", sku="sku-1")
+
+    req = transport.requests[0]
+    assert "/sell/inventory/v1/offer" in str(req.url)
+    assert "sku=sku-1" in str(req.url)
+    assert offers == [
+        OfferSummary(
+            sku="sku-1",
+            offer_id="offer-123",
+            listing_id="listing-456",
+            marketplace_id="EBAY_US",
+            format="FIXED_PRICE",
+            available_quantity=3,
+            category_id="9355",
+            merchant_location_key="loc-1",
+            listing_description="Test listing",
+            status="PUBLISHED",
+            price=19.99,
+            currency="USD",
+        )
+    ]
+
+
+def test_get_default_category_tree_id_uses_taxonomy_api():
+    client, transport = _make_client([
+        _json_response(_token_response("app-token")),
+        _json_response({"categoryTreeId": "0", "categoryTreeVersion": "123"}),
+    ])
+
+    tree_id = client.get_default_category_tree_id(marketplace_id="EBAY_US")
+
+    req = transport.requests[1]
+    assert "/commerce/taxonomy/v1/get_default_category_tree_id" in str(req.url)
+    assert "marketplace_id=EBAY_US" in str(req.url)
+    assert req.headers["Authorization"] == "Bearer app-token"
+    assert tree_id == "0"
+
+
+def test_get_category_suggestions_returns_summaries():
+    client, transport = _make_client([
+        _json_response(_token_response("app-token")),
+        _json_response({"categoryTreeId": "0", "categoryTreeVersion": "123"}),
+        _json_response(
+            {
+                "categoryTreeId": "0",
+                "categoryTreeVersion": "123",
+                "categorySuggestions": [
+                    {
+                        "category": {
+                            "categoryId": "9355",
+                            "categoryName": "Cell Phones & Smartphones",
+                        },
+                        "categoryTreeNodeAncestors": [
+                            {"category": {"categoryName": "Electronics"}},
+                            {"category": {"categoryName": "Cell Phones"}},
+                        ],
+                    }
+                ],
+            }
+        ),
+    ])
+
+    suggestions = client.get_category_suggestions(
+        "iphone",
+        marketplace_id="EBAY_US",
+        accept_language="en-US",
+    )
+
+    req = transport.requests[2]
+    assert "/commerce/taxonomy/v1/category_tree/0/get_category_suggestions" in str(req.url)
+    assert "q=iphone" in str(req.url)
+    assert req.headers["Authorization"] == "Bearer app-token"
+    assert req.headers["Accept-Language"] == "en-US"
+    assert suggestions == [
+        CategorySuggestion(
+            category_id="9355",
+            category_name="Cell Phones & Smartphones",
+            category_tree_id="0",
+            category_tree_version="123",
+            path=["Electronics", "Cell Phones", "Cell Phones & Smartphones"],
+        )
+    ]
+
+
+def test_get_fulfillment_policy_returns_payload():
+    client, transport = _make_client([
+        _json_response({"fulfillmentPolicyId": "policy-1", "name": "Policy 1"})
+    ])
+
+    body = client.get_fulfillment_policy("policy-1", "user-token-123")
+
+    req = transport.requests[0]
+    assert "/sell/account/v1/fulfillment_policy/policy-1" in str(req.url)
+    assert req.headers["Authorization"] == "Bearer user-token-123"
+    assert body["fulfillmentPolicyId"] == "policy-1"
+
+
+def test_create_fulfillment_policy_posts_payload():
+    client, transport = _make_client([
+        _json_response({"fulfillmentPolicyId": "policy-1", "name": "Policy 1"})
+    ])
+
+    body = client.create_fulfillment_policy(
+        "user-token-123",
+        {"name": "Policy 1", "categoryTypes": [{"name": "ALL_EXCLUDING_MOTORS_VEHICLES"}]},
+    )
+
+    req = transport.requests[0]
+    assert req.method == "POST"
+    assert "/sell/account/v1/fulfillment_policy/" in str(req.url)
+    assert b'"name":"Policy 1"' in req.content
+    assert body["fulfillmentPolicyId"] == "policy-1"
+
+
+def test_update_fulfillment_policy_puts_payload():
+    client, transport = _make_client([
+        _json_response({"fulfillmentPolicyId": "policy-1", "name": "Updated Policy"})
+    ])
+
+    body = client.update_fulfillment_policy(
+        "policy-1",
+        "user-token-123",
+        {"name": "Updated Policy", "categoryTypes": [{"name": "ALL_EXCLUDING_MOTORS_VEHICLES"}]},
+    )
+
+    req = transport.requests[0]
+    assert req.method == "PUT"
+    assert "/sell/account/v1/fulfillment_policy/policy-1" in str(req.url)
+    assert b'"name":"Updated Policy"' in req.content
+    assert body["name"] == "Updated Policy"
+
+
+def test_delete_fulfillment_policy_uses_delete():
+    client, transport = _make_client([_empty_response()])
+
+    client.delete_fulfillment_policy("policy-1", "user-token-123")
+
+    req = transport.requests[0]
+    assert req.method == "DELETE"
+    assert "/sell/account/v1/fulfillment_policy/policy-1" in str(req.url)
+
+
+def test_get_payment_policies_returns_raw_payload():
+    client, transport = _make_client([
+        _json_response({"paymentPolicies": [{"paymentPolicyId": "policy-1", "name": "Policy 1"}]})
+    ])
+
+    body = client.get_payment_policies_raw("user-token-123", marketplace_id="EBAY_US")
+
+    req = transport.requests[0]
+    assert "/sell/account/v1/payment_policy" in str(req.url)
+    assert "marketplace_id=EBAY_US" in str(req.url)
+    assert body == {"paymentPolicies": [{"paymentPolicyId": "policy-1", "name": "Policy 1"}]}
+
+
+def test_get_payment_policy_returns_payload():
+    client, transport = _make_client([
+        _json_response({"paymentPolicyId": "policy-1", "name": "Policy 1"})
+    ])
+
+    body = client.get_payment_policy("policy-1", "user-token-123")
+
+    req = transport.requests[0]
+    assert "/sell/account/v1/payment_policy/policy-1" in str(req.url)
+    assert body["paymentPolicyId"] == "policy-1"
+
+
+def test_create_payment_policy_posts_payload():
+    client, transport = _make_client([
+        _json_response({"paymentPolicyId": "policy-1", "name": "Policy 1"})
+    ])
+
+    body = client.create_payment_policy(
+        "user-token-123",
+        {"name": "Policy 1", "categoryTypes": [{"name": "ALL_EXCLUDING_MOTORS_VEHICLES"}]},
+    )
+
+    req = transport.requests[0]
+    assert req.method == "POST"
+    assert "/sell/account/v1/payment_policy/" in str(req.url)
+    assert b'"name":"Policy 1"' in req.content
+    assert body["paymentPolicyId"] == "policy-1"
+
+
+def test_update_payment_policy_puts_payload():
+    client, transport = _make_client([
+        _json_response({"paymentPolicyId": "policy-1", "name": "Updated Policy"})
+    ])
+
+    body = client.update_payment_policy(
+        "policy-1",
+        "user-token-123",
+        {"name": "Updated Policy", "categoryTypes": [{"name": "ALL_EXCLUDING_MOTORS_VEHICLES"}]},
+    )
+
+    req = transport.requests[0]
+    assert req.method == "PUT"
+    assert "/sell/account/v1/payment_policy/policy-1" in str(req.url)
+    assert b'"name":"Updated Policy"' in req.content
+    assert body["name"] == "Updated Policy"
+
+
+def test_delete_payment_policy_uses_delete():
+    client, transport = _make_client([_empty_response()])
+
+    client.delete_payment_policy("policy-1", "user-token-123")
+
+    req = transport.requests[0]
+    assert req.method == "DELETE"
+    assert "/sell/account/v1/payment_policy/policy-1" in str(req.url)
+
+
+def test_get_return_policies_returns_raw_payload():
+    client, transport = _make_client([
+        _json_response({"returnPolicies": [{"returnPolicyId": "policy-1", "name": "Policy 1"}]})
+    ])
+
+    body = client.get_return_policies_raw("user-token-123", marketplace_id="EBAY_US")
+
+    req = transport.requests[0]
+    assert "/sell/account/v1/return_policy" in str(req.url)
+    assert "marketplace_id=EBAY_US" in str(req.url)
+    assert body == {"returnPolicies": [{"returnPolicyId": "policy-1", "name": "Policy 1"}]}
+
+
+def test_get_return_policy_returns_payload():
+    client, transport = _make_client([
+        _json_response({"returnPolicyId": "policy-1", "name": "Policy 1"})
+    ])
+
+    body = client.get_return_policy("policy-1", "user-token-123")
+
+    req = transport.requests[0]
+    assert "/sell/account/v1/return_policy/policy-1" in str(req.url)
+    assert body["returnPolicyId"] == "policy-1"
+
+
+def test_create_return_policy_posts_payload():
+    client, transport = _make_client([
+        _json_response({"returnPolicyId": "policy-1", "name": "Policy 1"})
+    ])
+
+    body = client.create_return_policy(
+        "user-token-123",
+        {"name": "Policy 1", "categoryTypes": [{"name": "ALL_EXCLUDING_MOTORS_VEHICLES"}]},
+    )
+
+    req = transport.requests[0]
+    assert req.method == "POST"
+    assert "/sell/account/v1/return_policy/" in str(req.url)
+    assert b'"name":"Policy 1"' in req.content
+    assert body["returnPolicyId"] == "policy-1"
+
+
+def test_update_return_policy_puts_payload():
+    client, transport = _make_client([
+        _json_response({"returnPolicyId": "policy-1", "name": "Updated Policy"})
+    ])
+
+    body = client.update_return_policy(
+        "policy-1",
+        "user-token-123",
+        {"name": "Updated Policy", "categoryTypes": [{"name": "ALL_EXCLUDING_MOTORS_VEHICLES"}]},
+    )
+
+    req = transport.requests[0]
+    assert req.method == "PUT"
+    assert "/sell/account/v1/return_policy/policy-1" in str(req.url)
+    assert b'"name":"Updated Policy"' in req.content
+    assert body["name"] == "Updated Policy"
+
+
+def test_delete_return_policy_uses_delete():
+    client, transport = _make_client([_empty_response()])
+
+    client.delete_return_policy("policy-1", "user-token-123")
+
+    req = transport.requests[0]
+    assert req.method == "DELETE"
+    assert "/sell/account/v1/return_policy/policy-1" in str(req.url)
+
+
+def test_get_opted_in_programs_returns_programs():
+    client, transport = _make_client([
+        _json_response({"programs": [{"programType": "SELLING_POLICY_MANAGEMENT"}]})
+    ])
+
+    body = client.get_opted_in_programs("user-token-123")
+
+    req = transport.requests[0]
+    assert req.method == "GET"
+    assert "/sell/account/v1/program/get_opted_in_programs" in str(req.url)
+    assert body == [{"programType": "SELLING_POLICY_MANAGEMENT"}]
+
+
+def test_opt_in_to_program_posts_payload():
+    client, transport = _make_client([_json_response({})])
+
+    client.opt_in_to_program("user-token-123", "SELLING_POLICY_MANAGEMENT")
+
+    req = transport.requests[0]
+    assert req.method == "POST"
+    assert "/sell/account/v1/program/opt_in" in str(req.url)
+    assert b'"programType":"SELLING_POLICY_MANAGEMENT"' in req.content
+
+
+def test_get_shipping_services_returns_metadata():
+    client, transport = _make_client([
+        _json_response(_token_response("app-token")),
+        _json_response(
+            {
+                "shippingServices": [
+                    {
+                        "description": "USPS Priority Mail",
+                        "internationalService": False,
+                        "minShippingTime": 1,
+                        "maxShippingTime": 3,
+                    }
+                ]
+            }
+        ),
+    ])
+
+    services = client.get_shipping_services(marketplace_id="EBAY_US")
+
+    req = transport.requests[1]
+    assert "/sell/metadata/v1/shipping/marketplace/EBAY_US/get_shipping_services" in str(req.url)
+    assert req.headers["Authorization"] == "Bearer app-token"
+    assert services == [
+        ShippingServiceOption(
+            description="USPS Priority Mail",
+            international_service=False,
+            min_shipping_time=1,
+            max_shipping_time=3,
+        )
+    ]
+
+
+def test_inventory_helpers_require_user_token():
+    client, _ = _make_client([])
+
+    with pytest.raises(ValueError, match="user_token"):
+        client.create_inventory_location("loc-1", "", {})
+
+
+def test_get_fulfillment_policies_returns_parsed_models():
+    client, transport = _make_client(
+        [
+            _json_response(
+                {
+                    "fulfillmentPolicies": [
+                        {
+                            "fulfillmentPolicyId": "fp-1",
+                            "name": "Default shipping",
+                            "marketplaceId": "EBAY_US",
+                            "categoryTypes": [{"name": "ALL_EXCLUDING_MOTORS_VEHICLES"}],
+                            "description": "Fast shipping",
+                        }
+                    ]
+                }
+            )
+        ]
+    )
+
+    policies = client.get_fulfillment_policies("user-token-123")
+
+    req = transport.requests[0]
+    assert req.method == "GET"
+    assert "/sell/account/v1/fulfillment_policy" in str(req.url)
+    assert "marketplace_id=EBAY_US" in str(req.url)
+    assert len(policies) == 1
+    assert isinstance(policies[0], MarketplacePolicy)
+    assert policies[0].policy_id == "fp-1"
+
+
+def test_get_payment_policies_uses_marketplace_override():
+    client, transport = _make_client([_json_response({"paymentPolicies": []})])
+
+    client.get_payment_policies("user-token-123", marketplace_id="EBAY_GB")
+
+    req = transport.requests[0]
+    assert "/sell/account/v1/payment_policy" in str(req.url)
+    assert "marketplace_id=EBAY_GB" in str(req.url)
+
+
+def test_get_return_policies_requires_user_token():
+    client, _ = _make_client([])
+
+    with pytest.raises(ValueError, match="user_token"):
+        client.get_return_policies("")
+
+
+def test_build_user_consent_url_contains_required_params():
+    client, _ = _make_client([])
+
+    url = client.build_user_consent_url(
+        runame="my-runame",
+        state="state-123",
+        scopes=DEFAULT_USER_SCOPES,
+    )
+
+    parsed = urlparse(url)
+    query = parse_qs(parsed.query)
+    assert "oauth2/authorize" in url
+    assert query["client_id"] == ["app-id"]
+    assert query["redirect_uri"] == ["my-runame"]
+    assert query["response_type"] == ["code"]
+    assert query["state"] == ["state-123"]
+    assert SELL_INVENTORY_SCOPE in query["scope"][0]
+    assert SELL_ACCOUNT_SCOPE in query["scope"][0]
+
+
+def test_exchange_authorization_code_posts_expected_form():
+    client, transport = _make_client([
+        _json_response(
+            {
+                "access_token": "user-access",
+                "refresh_token": "user-refresh",
+                "expires_in": 7200,
+                "refresh_token_expires_in": 47304000,
+                "scope": f"{SELL_INVENTORY_SCOPE} {SELL_ACCOUNT_SCOPE}",
+                "token_type": "User Access Token",
+            }
+        )
+    ])
+
+    body = client.exchange_authorization_code("auth-code-123", runame="my-runame")
+
+    req = transport.requests[0]
+    expected = base64.b64encode(b"app-id:cert-id").decode()
+    assert req.method == "POST"
+    assert req.headers["Authorization"] == f"Basic {expected}"
+    assert b"grant_type=authorization_code" in req.content
+    assert b"code=auth-code-123" in req.content
+    assert b"redirect_uri=my-runame" in req.content
+    assert body["access_token"] == "user-access"
+
+
+def test_refresh_user_access_token_posts_expected_form():
+    client, transport = _make_client([
+        _json_response({"access_token": "user-access-2", "expires_in": 7200})
+    ])
+
+    body = client.refresh_user_access_token(
+        "refresh-123",
+        scopes=DEFAULT_USER_SCOPES,
+    )
+
+    req = transport.requests[0]
+    assert req.method == "POST"
+    assert b"grant_type=refresh_token" in req.content
+    assert b"refresh_token=refresh-123" in req.content
+    assert b"sell.inventory" in req.content
+    assert body["access_token"] == "user-access-2"
 
 
 # ---------------------------------------------------------------------------

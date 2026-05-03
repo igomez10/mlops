@@ -1,15 +1,18 @@
 from __future__ import annotations
 
+import hashlib
+import hmac
+import logging
+
 # import io
 # import torch
 # import requests
-import logging
 import mimetypes
 import os
 import re
 import uuid
 from contextlib import asynccontextmanager
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, cast
 
@@ -17,7 +20,7 @@ import fastapi
 from dotenv import load_dotenv
 from fastapi import Depends, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import Response
+from fastapi.responses import HTMLResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, model_validator
 from pymongo import MongoClient
@@ -32,6 +35,13 @@ from pkg import CloudSettings, FirestoreMongoDatabase, GoogleCloudStorage
 load_dotenv(dotenv_path=".env")
 load_dotenv(dotenv_path="product_analyzer/.env")
 
+from pkg import (
+    EbayTokenRepository,
+    EbayUserToken,
+    InMemoryEbayTokenRepository,
+    MongoEbayTokenRepository,
+)
+from pkg.ebay import DEFAULT_USER_SCOPES, EbayClient
 from pkg.gcs import api_absolute_url_for_object_key, normalize_stored_to_object_key  # noqa: E402
 from pkg.posts import InMemoryPostRepository, MongoPostRepository, Post, PostRepository  # noqa: E402
 from product_analyzer.service import analyze_product_image_bytes  # noqa: E402
@@ -41,6 +51,7 @@ from product_analyzer.service import analyze_product_image_bytes  # noqa: E402
 
 app_state: dict[str, Any] = {}
 log = logging.getLogger(__name__)
+logger = logging.getLogger(__name__)
 
 
 _SEED_POSTS = [
@@ -99,14 +110,17 @@ async def lifespan(app: fastapi.FastAPI):
         app_state["mongo_client"] = mongo_client
         db_name = os.environ.get("MONGO_DATABASE", "mlops")
         app_state["post_repository"] = MongoPostRepository(mongo_client[db_name]["posts"])
+        app_state["ebay_token_repository"] = MongoEbayTokenRepository(mongo_client[db_name]["ebay_user_tokens"])
     elif backend == "firestore":
         db = FirestoreMongoDatabase.from_settings(settings)
         app_state["post_repository"] = MongoPostRepository(db.collection("posts"))
+        app_state["ebay_token_repository"] = MongoEbayTokenRepository(db.collection("ebay_user_tokens"))
     else:
         repo = InMemoryPostRepository()
         if os.environ.get("SEED_POSTS") == "1":
             _seed_posts(repo)
         app_state["post_repository"] = repo
+        app_state["ebay_token_repository"] = InMemoryEbayTokenRepository()
     if settings.gcs_images_bucket:
         app_state["images_storage"] = GoogleCloudStorage(
             settings.gcs_images_bucket,
@@ -137,8 +151,49 @@ def get_post_repo() -> PostRepository:
     return app_state["post_repository"]
 
 
+def get_ebay_token_repo() -> EbayTokenRepository:
+    return app_state["ebay_token_repository"]
+
+
 def get_images_storage() -> GoogleCloudStorage | None:
     return app_state.get("images_storage")
+
+
+def _get_ebay_client(settings: CloudSettings) -> EbayClient:
+    return EbayClient.from_settings(settings)
+
+
+def _ebay_state_secret(settings: CloudSettings) -> str:
+    if not settings.ebay_cert_id:
+        raise RuntimeError("EBAY_CERT_ID must be configured")
+    return settings.ebay_cert_id
+
+
+def _make_ebay_state(user_id: str, settings: CloudSettings) -> str:
+    nonce = uuid.uuid4().hex
+    payload = f"{user_id}:{nonce}"
+    signature = hmac.new(
+        _ebay_state_secret(settings).encode(),
+        payload.encode(),
+        hashlib.sha256,
+    ).hexdigest()
+    return f"{payload}:{signature}"
+
+
+def _parse_ebay_state(state: str, settings: CloudSettings) -> str:
+    try:
+        user_id, nonce, signature = state.split(":", 2)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="invalid ebay state") from exc
+    payload = f"{user_id}:{nonce}"
+    expected = hmac.new(
+        _ebay_state_secret(settings).encode(),
+        payload.encode(),
+        hashlib.sha256,
+    ).hexdigest()
+    if not hmac.compare_digest(signature, expected):
+        raise HTTPException(status_code=400, detail="invalid ebay state")
+    return user_id
 
 
 def _images_bucket() -> str | None:
@@ -154,14 +209,157 @@ def _post_has_stored_image(post: Post, object_path: str, bucket: str | None) -> 
     return False
 
 
+class EbayAuthorizeResponse(BaseModel):
+    authorization_url: str
+    state: str
+    scopes: list[str]
+
+
+class EbayCallbackResponse(BaseModel):
+    user_id: str
+    scopes: list[str]
+    expires_at: datetime
+    refresh_token_present: bool
+
+
+class EbayListingSummaryResponse(BaseModel):
+    sku: str
+    offer_id: str | None = None
+    listing_id: str | None = None
+    marketplace_id: str | None = None
+    format: str | None = None
+    available_quantity: int | None = None
+    category_id: str | None = None
+    merchant_location_key: str | None = None
+    listing_description: str | None = None
+    status: str | None = None
+    price: float | None = None
+    currency: str | None = None
+
+
+class EbayListingsResponse(BaseModel):
+    user_id: str
+    listings: list[EbayListingSummaryResponse] = Field(default_factory=list)
+
+
+def _store_ebay_callback(
+    *,
+    code: str | None,
+    state: str | None,
+    error: str | None,
+    error_description: str | None,
+    repo: EbayTokenRepository,
+) -> EbayCallbackResponse:
+    settings = app_state["cloud_settings"]
+    if error:
+        detail = error_description or error
+        logger.warning(
+            "ebay authorization rejected",
+            extra={"error": error, "error_description": error_description, "state_present": bool(state)},
+        )
+        raise HTTPException(status_code=400, detail=f"ebay authorization failed: {detail}")
+    if not code or not state:
+        logger.warning(
+            "ebay callback missing required params",
+            extra={"code_present": bool(code), "state_present": bool(state)},
+        )
+        raise HTTPException(status_code=400, detail="missing ebay code or state")
+    if not settings.ebay_runame:
+        raise HTTPException(status_code=503, detail="EBAY_RUNAME not configured")
+
+    user_id = _parse_ebay_state(state, settings)
+    token_body = _get_ebay_client(settings).exchange_authorization_code(
+        code,
+        runame=settings.ebay_runame,
+    )
+    now = datetime.now(timezone.utc)
+    expires_at = now + timedelta(seconds=int(token_body.get("expires_in", 0)))
+    raw_refresh_expires = token_body.get("refresh_token_expires_in")
+    refresh_expires_at = now + timedelta(seconds=int(raw_refresh_expires)) if raw_refresh_expires is not None else None
+    scopes = str(token_body.get("scope") or "").split()
+    existing = repo.get_by_user_id(user_id)
+    token = EbayUserToken(
+        user_id=user_id,
+        access_token=str(token_body["access_token"]),
+        refresh_token=(str(token_body.get("refresh_token")) if token_body.get("refresh_token") is not None else None),
+        token_type=str(token_body.get("token_type") or "Bearer"),
+        scopes=scopes,
+        expires_at=expires_at,
+        refresh_token_expires_at=refresh_expires_at,
+        created_at=existing.created_at if existing is not None else now,
+        updated_at=now,
+    )
+    repo.upsert(token)
+    logger.info(
+        "ebay authorization accepted",
+        extra={
+            "user_id": user_id,
+            "scopes": scopes,
+            "refresh_token_present": token.refresh_token is not None,
+        },
+    )
+    return EbayCallbackResponse(
+        user_id=user_id,
+        scopes=token.scopes,
+        expires_at=token.expires_at,
+        refresh_token_present=token.refresh_token is not None,
+    )
+
+
+def _get_valid_ebay_user_token(
+    user_id: str,
+    *,
+    repo: EbayTokenRepository,
+    client: EbayClient,
+) -> EbayUserToken:
+    token = repo.get_by_user_id(user_id)
+    if token is None:
+        raise HTTPException(status_code=404, detail="ebay token not found")
+
+    now = datetime.now(timezone.utc)
+    if token.expires_at > now:
+        return token
+    if not token.refresh_token:
+        raise HTTPException(status_code=401, detail="ebay token expired")
+
+    token_body = client.refresh_user_access_token(
+        token.refresh_token,
+        scopes=tuple(token.scopes) if token.scopes else None,
+    )
+    expires_at = now + timedelta(seconds=int(token_body.get("expires_in", 0)))
+    raw_refresh_expires = token_body.get("refresh_token_expires_in")
+    refresh_expires_at = (
+        now + timedelta(seconds=int(raw_refresh_expires))
+        if raw_refresh_expires is not None
+        else token.refresh_token_expires_at
+    )
+    scopes = str(token_body.get("scope") or "").split() or token.scopes
+    refreshed = EbayUserToken(
+        user_id=token.user_id,
+        access_token=str(token_body["access_token"]),
+        refresh_token=(
+            str(token_body.get("refresh_token")) if token_body.get("refresh_token") is not None else token.refresh_token
+        ),
+        token_type=str(token_body.get("token_type") or token.token_type or "Bearer"),
+        scopes=scopes,
+        expires_at=expires_at,
+        refresh_token_expires_at=refresh_expires_at,
+        created_at=token.created_at or now,
+        updated_at=now,
+    )
+    repo.upsert(refreshed)
+    return refreshed
+
+
 app = fastapi.FastAPI(lifespan=lifespan)
 
-_default_cors = "http://localhost:5173,http://127.0.0.1:5173,http://localhost:5174,http://127.0.0.1:5174"
+_default_cors = "*"
 _cors_origins = [o.strip() for o in os.environ.get("CORS_ORIGINS", _default_cors).split(",") if o.strip()]
+_allow_all_origins = _cors_origins == ["*"]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=_cors_origins,
-    allow_credentials=True,
+    allow_origins=["*"] if _allow_all_origins else _cors_origins,
+    allow_credentials=False if _allow_all_origins else True,
     allow_methods=["GET", "POST", "PATCH", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["*"],
 )
@@ -180,6 +378,127 @@ if os.environ.get("E2E_TEST") == "1":
 @app.get("/health")
 def health() -> dict:
     return {"status": "ok"}
+
+
+@app.get("/auth/ebay/authorize", response_model=EbayAuthorizeResponse)
+def ebay_authorize(user_id: str) -> EbayAuthorizeResponse:
+    settings = app_state["cloud_settings"]
+    if not settings.ebay_runame:
+        raise HTTPException(status_code=503, detail="EBAY_RUNAME not configured")
+    state = _make_ebay_state(user_id, settings)
+    scopes = list(DEFAULT_USER_SCOPES)
+    authorization_url = _get_ebay_client(settings).build_user_consent_url(
+        runame=settings.ebay_runame,
+        state=state,
+        scopes=DEFAULT_USER_SCOPES,
+    )
+    return EbayAuthorizeResponse(
+        authorization_url=authorization_url,
+        state=state,
+        scopes=scopes,
+    )
+
+
+@app.get("/auth/ebay/callback", response_model=EbayCallbackResponse)
+def ebay_callback(
+    code: str | None = None,
+    state: str | None = None,
+    error: str | None = None,
+    error_description: str | None = None,
+    repo: EbayTokenRepository = Depends(get_ebay_token_repo),
+) -> EbayCallbackResponse:
+    return _store_ebay_callback(
+        code=code,
+        state=state,
+        error=error,
+        error_description=error_description,
+        repo=repo,
+    )
+
+
+@app.get("/ebay/listings", response_model=EbayListingsResponse)
+def ebay_listings(
+    user: str,
+    repo: EbayTokenRepository = Depends(get_ebay_token_repo),
+) -> EbayListingsResponse:
+    token = repo.get_by_user_id(user)
+    if token is None:
+        raise HTTPException(status_code=404, detail="ebay token not found")
+
+    settings = app_state["cloud_settings"]
+    client = _get_ebay_client(settings)
+    token = _get_valid_ebay_user_token(user, repo=repo, client=client)
+
+    listings: list[EbayListingSummaryResponse] = []
+    offset = 0
+    limit = 200
+    while True:
+        skus, next_url = client.get_inventory_items(
+            token.access_token,
+            limit=limit,
+            offset=offset,
+        )
+        for sku in skus:
+            offers = client.get_offers(
+                token.access_token,
+                sku=sku,
+            )
+            listings.extend(
+                EbayListingSummaryResponse(
+                    sku=offer.sku,
+                    offer_id=offer.offer_id,
+                    listing_id=offer.listing_id,
+                    marketplace_id=offer.marketplace_id,
+                    format=offer.format,
+                    available_quantity=offer.available_quantity,
+                    category_id=offer.category_id,
+                    merchant_location_key=offer.merchant_location_key,
+                    listing_description=offer.listing_description,
+                    status=offer.status,
+                    price=offer.price,
+                    currency=offer.currency,
+                )
+                for offer in offers
+            )
+        if not next_url or len(skus) < limit:
+            break
+        offset += len(skus)
+
+    return EbayListingsResponse(user_id=user, listings=listings)
+
+
+@app.get("/auth/ebay/accepted", response_class=HTMLResponse)
+def ebay_authorization_accepted(
+    code: str | None = None,
+    state: str | None = None,
+    error: str | None = None,
+    error_description: str | None = None,
+    repo: EbayTokenRepository = Depends(get_ebay_token_repo),
+) -> HTMLResponse:
+    _store_ebay_callback(
+        code=code,
+        state=state,
+        error=error,
+        error_description=error_description,
+        repo=repo,
+    )
+    return HTMLResponse(
+        "<html><body><h1>eBay authorization accepted</h1><p>You can close this window.</p></body></html>"
+    )
+
+
+@app.get("/auth/ebay/rejected", response_class=HTMLResponse)
+def ebay_authorization_rejected(
+    error: str | None = None,
+    error_description: str | None = None,
+    state: str | None = None,
+) -> HTMLResponse:
+    logger.warning(
+        "ebay authorization rejected callback",
+        extra={"error": error, "error_description": error_description, "state_present": bool(state)},
+    )
+    message = error_description or error or "The authorization request was rejected."
+    return HTMLResponse(f"<html><body><h1>eBay authorization rejected</h1><p>{message}</p></body></html>")
 
 
 @app.get("/images/{object_path:path}", response_class=Response)

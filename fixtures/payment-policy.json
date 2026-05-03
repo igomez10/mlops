@@ -1,0 +1,11 @@
+{
+  "name": "Codex Sandbox Payment Policy",
+  "description": "Test payment policy created from CLI",
+  "marketplaceId": "EBAY_US",
+  "categoryTypes": [
+    {
+      "name": "ALL_EXCLUDING_MOTORS_VEHICLES"
+    }
+  ],
+  "immediatePay": false
+}

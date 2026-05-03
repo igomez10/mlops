@@ -23,9 +23,10 @@ VERTEX_ARTIFACT_URI := gs://$(GCP_PROJECT)-mlflow-artifacts/models/linear-regres
 SKLEARN_IMAGE := us-docker.pkg.dev/vertex-ai/prediction/sklearn-cpu.1-3:latest
 AR_IMAGE := $(GCP_REGION)-docker.pkg.dev/$(GCP_PROJECT)/mlflow/mlflow:v3.10.1-full
 FASTAPI_IMAGE := $(GCP_REGION)-docker.pkg.dev/$(GCP_PROJECT)/fastapi/fastapi:latest
+FASTAPI_DEV_IMAGE := $(GCP_REGION)-docker.pkg.dev/$(GCP_PROJECT)/fastapi/fastapi-ignacio:latest
 MLFLOW_VERSION := v3.10.1-full
 
-.PHONY: build run stop clean tf-plan tf-apply gcp-build-app push-mlflow push-fastapi redeploy-mlflow redeploy-fastapi deploy-fastapi-local run-fastapi run-fastapi-firestore compose-up-dev dev-server dev-server-mongo start-docker-compose frontend-install frontend-dev ui frontend-e2e lint vertex-upload-toy-model vertex-deploy-toy-model vertex-undeploy-toy-model
+.PHONY: build run stop clean tf-plan tf-apply gcp-build-app push-mlflow push-fastapi push-fastapi-dev redeploy-mlflow redeploy-fastapi redeploy-fastapi-dev deploy-fastapi-local deploy-fastapi-dev-local run-fastapi run-fastapi-firestore compose-up-dev dev-server dev-server-mongo start-docker-compose frontend-install frontend-dev ui frontend-e2e lint completion-zsh vertex-upload-toy-model vertex-deploy-toy-model vertex-undeploy-toy-model
 
 build-fastapi:
 	docker build -t $(FASTAPI_IMAGE) -f Dockerfile.fastapi .
@@ -78,6 +79,11 @@ push-fastapi:
 	gcloud auth configure-docker $(GCP_REGION)-docker.pkg.dev --quiet
 	docker push $(FASTAPI_IMAGE)
 
+push-fastapi-dev:
+	docker build --platform linux/amd64 -t $(FASTAPI_DEV_IMAGE) -f Dockerfile.fastapi .
+	gcloud auth configure-docker $(GCP_REGION)-docker.pkg.dev --quiet
+	docker push $(FASTAPI_DEV_IMAGE)
+
 redeploy-fastapi:
 	gcloud run deploy fastapi \
 		--image $(FASTAPI_IMAGE) \
@@ -86,15 +92,27 @@ redeploy-fastapi:
 		--project $(GCP_PROJECT) \
 		--quiet
 
+redeploy-fastapi-dev:
+	gcloud run deploy fastapi-dev \
+		--image $(FASTAPI_DEV_IMAGE) \
+		--cpu-throttling \
+		--region $(GCP_REGION) \
+		--project $(GCP_PROJECT) \
+		--quiet
+
 deploy-fastapi-local: push-fastapi redeploy-fastapi
 
+deploy-fastapi-dev-local: push-fastapi-dev redeploy-fastapi-dev
+
 run-fastapi:
+	set -a; . ./.env; set +a; \
 	GCS_IMAGES_BUCKET=$(DEV_GCS_IMAGES_BUCKET) \
 	POSTS_BACKEND=mongodb \
 	MONGODB_URI=$(DEV_MONGODB_URL) \
 	uvicorn server:app --host 0.0.0.0 --port 8000 --reload
 
 run-fastapi-firestore:
+	set -a; . ./.env; set +a; \
 	GCS_IMAGES_BUCKET=$(DEV_GCS_IMAGES_BUCKET) \
 	GOOGLE_CLOUD_PROJECT=$(GCP_PROJECT) \
 	POSTS_BACKEND=firestore \
@@ -108,6 +126,7 @@ compose-up-dev:
 # Dev: reload on code changes; local MongoDB-backed posts.
 dev-server: compose-up-dev
 	mkdir -p $$(dirname $(SERVER_LOG))
+	set -a; . ./.env; set +a; \
 	GCS_IMAGES_BUCKET=$(DEV_GCS_IMAGES_BUCKET) \
 	POSTS_BACKEND=mongodb \
 	MONGODB_URI=$(DEV_MONGODB_URL) \
@@ -117,6 +136,7 @@ dev-server: compose-up-dev
 # Dev: same as dev-server but backed by MongoDB (starts Docker Compose services first).
 dev-server-mongo: compose-up-dev
 	mkdir -p $$(dirname $(SERVER_LOG))
+	set -a; . ./.env; set +a; \
 	MLFLOW_TRACKING_URI=$(DEV_MLFLOW_URL) \
 	POSTS_BACKEND=mongodb \
 	MONGODB_URI=$(DEV_MONGODB_URL) \
@@ -143,6 +163,10 @@ lint:
 	uv sync --frozen --group dev
 	uv run ruff check .
 	uv run mypy pkg/ server.py
+
+completion-zsh:
+	mkdir -p scripts/completion
+	uv run register-python-argcomplete --shell zsh ebay-cli > scripts/completion/_ebay-cli
 
 vertex-upload-toy-model:
 	gcloud ai models upload \

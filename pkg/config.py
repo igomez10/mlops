@@ -36,6 +36,7 @@ class CloudSettings:
     ebay_app_id: str | None = None
     ebay_cert_id: str | None = None
     ebay_sandbox: bool = False
+    ebay_runame: str | None = None
 
     @classmethod
     def from_env(cls) -> CloudSettings:
@@ -54,4 +55,5 @@ class CloudSettings:
             ebay_app_id=_env("EBAY_APP_ID"),
             ebay_cert_id=_env("EBAY_CERT_ID"),
             ebay_sandbox=_env_bool("EBAY_SANDBOX", default=False),
+            ebay_runame=_env("EBAY_RUNAME") or _env("EBAY_REDIRECT_URI"),
         )

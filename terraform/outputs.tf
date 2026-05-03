@@ -8,6 +8,11 @@ output "fastapi_url" {
   value       = google_cloud_run_v2_service.fastapi.uri
 }
 
+output "fastapi_dev_url" {
+  description = "Beta app URL: separate Cloud Run service backed by the fastapi-ignacio image"
+  value       = google_cloud_run_v2_service.fastapi_dev.uri
+}
+
 output "gcs_images_bucket" {
   description = "GCS bucket for post image uploads; set as GCS_IMAGES_BUCKET for the API (also injected on Cloud Run)"
   value       = google_storage_bucket.mlops_images.name
@@ -21,6 +26,11 @@ output "firestore_database_id" {
 output "app_artifact_image" {
   description = "Artifact Registry image for the combined API + UI container"
   value       = "${var.region}-docker.pkg.dev/${var.project_id}/fastapi/fastapi"
+}
+
+output "app_artifact_image_dev" {
+  description = "Artifact Registry image for the beta FastAPI Cloud Run service"
+  value       = "${var.region}-docker.pkg.dev/${var.project_id}/fastapi/fastapi-ignacio"
 }
 
 output "cloudbuild_manual" {

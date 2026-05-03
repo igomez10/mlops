@@ -31,6 +31,7 @@ End-to-end ML platform on GCP using MLflow for experiment tracking and FastAPI f
 |---------|-----|
 | MLflow  | https://mlflow-34676207684.us-central1.run.app |
 | FastAPI | https://fastapi-34676207684.us-central1.run.app |
+| FastAPI Dev | Provisioned by Terraform as `fastapi-dev`; URL available from `terraform output fastapi_dev_url` after apply |
 
 ## Repository Layout
 
@@ -115,6 +116,7 @@ make tf-apply   # apply changes
 | GCS Bucket | `mlops-492103-mlflow-db` (MLflow backend store via SQLite) |
 | Cloud Run | `mlflow` (2 CPU, 2Gi RAM, max 1 instance) |
 | Cloud Run | `fastapi` (1 CPU, 512Mi RAM) |
+| Cloud Run | `fastapi-dev` (1 CPU, 512Mi RAM; same env/database/bucket as `fastapi`) |
 | Vertex AI Endpoint | `linear-regression-endpoint` |
 
 Both Cloud Run services use CPU throttling and scale to zero when idle.
@@ -127,11 +129,15 @@ Images are stored in GCP Artifact Registry (`us-central1-docker.pkg.dev/mlops-49
 # Build and push FastAPI image
 make push-fastapi
 
+# Build and push beta FastAPI image for fastapi-dev
+make push-fastapi-dev
+
 # Pull official MLflow image and push to registry
 make push-mlflow
 
 # Redeploy services on Cloud Run
 make redeploy-fastapi
+make redeploy-fastapi-dev
 make redeploy-mlflow
 ```
 

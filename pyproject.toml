@@ -5,6 +5,7 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+    "argcomplete>=3.6.2",
     "boto3>=1.42.82",
     "google-cloud-firestore>=2.16.0",
     "google-cloud-storage>=2.0.0",
@@ -22,6 +23,16 @@ dependencies = [
     "statsmodels>=0.14.6",
     "uvicorn>=0.42.0",
 ]
+
+[project.scripts]
+ebay-cli = "pkg.ebay_cli:main"
+
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["pkg*"]
 
 [dependency-groups]
 dev = [
@@ -48,3 +59,6 @@ markers = [
     "live: hits a real server (E2E_BASE_URL, default http://127.0.0.1:8000)",
     "sandbox: hits the real eBay sandbox API (requires EBAY_APP_ID and EBAY_CERT_ID)",
 ]
+
+[tool.uv]
+package = true

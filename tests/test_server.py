@@ -1,8 +1,19 @@
+from datetime import datetime, timedelta, timezone
+from urllib.parse import parse_qs, urlparse
+
 import pytest
 from fastapi.testclient import TestClient
 
+from pkg import InMemoryEbayTokenRepository
 from pkg.config import CloudSettings
-from server import CreatePostsRequest, _resolve_posts_backend, app
+from pkg.ebay import SELL_ACCOUNT_SCOPE, SELL_INVENTORY_SCOPE
+from server import (
+    CreatePostsRequest,
+    _make_ebay_state,
+    _resolve_posts_backend,
+    app,
+    app_state,
+)
 
 
 @pytest.fixture
@@ -124,3 +135,248 @@ def test_resolve_posts_backend_uses_firestore_on_cloud_run(monkeypatch):
         posts_backend="auto",
     )
     assert _resolve_posts_backend(settings) == "firestore"
+
+
+def test_ebay_authorize_returns_consent_url(monkeypatch):
+    monkeypatch.setenv("EBAY_RUNAME", "test-runame")
+    monkeypatch.setenv("EBAY_APP_ID", "test-app-id")
+    monkeypatch.setenv("EBAY_CERT_ID", "test-cert-id")
+    with TestClient(app) as test_client:
+        response = test_client.get("/auth/ebay/authorize", params={"user_id": "user-123"})
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["state"]
+        assert SELL_INVENTORY_SCOPE in body["scopes"]
+        assert SELL_ACCOUNT_SCOPE in body["scopes"]
+
+        parsed = urlparse(body["authorization_url"])
+        query = parse_qs(parsed.query)
+        assert query["redirect_uri"] == ["test-runame"]
+        assert query["state"] == [body["state"]]
+
+
+def test_ebay_callback_stores_tokens(monkeypatch):
+    class _FakeEbayClient:
+        def exchange_authorization_code(self, code: str, *, runame: str) -> dict:
+            assert code == "auth-code-123"
+            assert runame == "test-runame"
+            return {
+                "access_token": "user-access",
+                "refresh_token": "user-refresh",
+                "expires_in": 7200,
+                "refresh_token_expires_in": 47304000,
+                "scope": f"{SELL_INVENTORY_SCOPE} {SELL_ACCOUNT_SCOPE}",
+                "token_type": "User Access Token",
+    }
+
+    monkeypatch.setenv("EBAY_RUNAME", "test-runame")
+    monkeypatch.setenv("EBAY_APP_ID", "test-app-id")
+    monkeypatch.setenv("EBAY_CERT_ID", "test-cert-id")
+    monkeypatch.setattr("server._get_ebay_client", lambda settings: _FakeEbayClient())
+    with TestClient(app) as test_client:
+        settings = app_state["cloud_settings"]
+        repo = InMemoryEbayTokenRepository()
+        app_state["ebay_token_repository"] = repo
+        state = _make_ebay_state("user-123", settings)
+        response = test_client.get(
+            "/auth/ebay/callback",
+            params={"code": "auth-code-123", "state": state},
+        )
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["user_id"] == "user-123"
+        assert body["refresh_token_present"] is True
+        assert SELL_INVENTORY_SCOPE in body["scopes"]
+        stored = repo.get_by_user_id("user-123")
+        assert stored is not None
+        assert stored.access_token == "user-access"
+        assert stored.refresh_token == "user-refresh"
+
+
+def test_ebay_callback_rejects_invalid_state(monkeypatch):
+    monkeypatch.setenv("EBAY_RUNAME", "test-runame")
+    monkeypatch.setenv("EBAY_APP_ID", "test-app-id")
+    monkeypatch.setenv("EBAY_CERT_ID", "test-cert-id")
+    with TestClient(app) as test_client:
+        response = test_client.get(
+            "/auth/ebay/callback",
+            params={"code": "auth-code-123", "state": "bad-state"},
+        )
+
+        assert response.status_code == 400
+        assert response.json()["detail"] == "invalid ebay state"
+
+
+def test_ebay_listings_returns_aggregated_offers(monkeypatch):
+    class _FakeEbayClient:
+        def get_inventory_items(self, access_token: str, *, limit: int = 200, offset: int = 0):
+            assert access_token == "user-access"
+            assert limit == 200
+            assert offset == 0
+            return ["sku-1", "sku-2"], None
+
+        def get_offers(self, access_token: str, *, sku: str):
+            assert access_token == "user-access"
+            if sku == "sku-1":
+                return [
+                    type(
+                        "Offer",
+                        (),
+                        {
+                            "sku": "sku-1",
+                            "offer_id": "offer-1",
+                            "listing_id": "listing-1",
+                            "marketplace_id": "EBAY_US",
+                            "format": "FIXED_PRICE",
+                            "available_quantity": 2,
+                            "category_id": "9355",
+                            "merchant_location_key": "loc-1",
+                            "listing_description": "First listing",
+                            "status": "PUBLISHED",
+                            "price": 19.99,
+                            "currency": "USD",
+                        },
+                    )()
+                ]
+            return []
+
+    monkeypatch.setattr("server._get_ebay_client", lambda settings: _FakeEbayClient())
+    with TestClient(app) as test_client:
+        repo = InMemoryEbayTokenRepository()
+        now = datetime.now(timezone.utc)
+        repo.upsert(
+            type("Token", (), {
+                "user_id": "123",
+                "access_token": "user-access",
+                "refresh_token": "user-refresh",
+                "token_type": "Bearer",
+                "scopes": [SELL_INVENTORY_SCOPE, SELL_ACCOUNT_SCOPE],
+                "expires_at": now + timedelta(hours=1),
+                "refresh_token_expires_at": None,
+                "created_at": now,
+                "updated_at": now,
+            })()
+        )
+        app_state["ebay_token_repository"] = repo
+
+        response = test_client.get("/ebay/listings", params={"user": "123"})
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["user_id"] == "123"
+        assert body["listings"] == [
+            {
+                "sku": "sku-1",
+                "offer_id": "offer-1",
+                "listing_id": "listing-1",
+                "marketplace_id": "EBAY_US",
+                "format": "FIXED_PRICE",
+                "available_quantity": 2,
+                "category_id": "9355",
+                "merchant_location_key": "loc-1",
+                "listing_description": "First listing",
+                "status": "PUBLISHED",
+                "price": 19.99,
+                "currency": "USD",
+            }
+        ]
+
+
+def test_ebay_listings_refreshes_expired_token(monkeypatch):
+    class _FakeEbayClient:
+        def refresh_user_access_token(self, refresh_token: str, *, scopes=None) -> dict:
+            assert refresh_token == "refresh-123"
+            return {
+                "access_token": "new-access",
+                "refresh_token": "new-refresh",
+                "expires_in": 7200,
+                "scope": f"{SELL_INVENTORY_SCOPE} {SELL_ACCOUNT_SCOPE}",
+                "token_type": "User Access Token",
+            }
+
+        def get_inventory_items(self, access_token: str, *, limit: int = 200, offset: int = 0):
+            assert access_token == "new-access"
+            return [], None
+
+        def get_offers(self, access_token: str, *, sku: str):
+            raise AssertionError("should not fetch offers when there are no SKUs")
+
+    monkeypatch.setattr("server._get_ebay_client", lambda settings: _FakeEbayClient())
+    with TestClient(app) as test_client:
+        repo = InMemoryEbayTokenRepository()
+        now = datetime.now(timezone.utc)
+        repo.upsert(
+            type("Token", (), {
+                "user_id": "123",
+                "access_token": "old-access",
+                "refresh_token": "refresh-123",
+                "token_type": "Bearer",
+                "scopes": [SELL_INVENTORY_SCOPE, SELL_ACCOUNT_SCOPE],
+                "expires_at": now - timedelta(minutes=1),
+                "refresh_token_expires_at": None,
+                "created_at": now - timedelta(days=1),
+                "updated_at": now - timedelta(days=1),
+            })()
+        )
+        app_state["ebay_token_repository"] = repo
+
+        response = test_client.get("/ebay/listings", params={"user": "123"})
+
+        assert response.status_code == 200
+        stored = repo.get_by_user_id("123")
+        assert stored is not None
+        assert stored.access_token == "new-access"
+        assert stored.refresh_token == "new-refresh"
+
+
+def test_ebay_listings_returns_404_without_token():
+    with TestClient(app) as test_client:
+        app_state["ebay_token_repository"] = InMemoryEbayTokenRepository()
+
+        response = test_client.get("/ebay/listings", params={"user": "missing"})
+
+        assert response.status_code == 404
+        assert response.json()["detail"] == "ebay token not found"
+
+
+def test_ebay_accepted_page_shows_simple_message(monkeypatch):
+    class _FakeEbayClient:
+        def exchange_authorization_code(self, code: str, *, runame: str) -> dict:
+            return {
+                "access_token": "user-access",
+                "refresh_token": "user-refresh",
+                "expires_in": 7200,
+                "refresh_token_expires_in": 47304000,
+                "scope": f"{SELL_INVENTORY_SCOPE} {SELL_ACCOUNT_SCOPE}",
+                "token_type": "User Access Token",
+            }
+
+    monkeypatch.setenv("EBAY_RUNAME", "test-runame")
+    monkeypatch.setenv("EBAY_APP_ID", "test-app-id")
+    monkeypatch.setenv("EBAY_CERT_ID", "test-cert-id")
+    monkeypatch.setattr("server._get_ebay_client", lambda settings: _FakeEbayClient())
+    with TestClient(app) as test_client:
+        settings = app_state["cloud_settings"]
+        app_state["ebay_token_repository"] = InMemoryEbayTokenRepository()
+        state = _make_ebay_state("user-123", settings)
+        response = test_client.get(
+            "/auth/ebay/accepted",
+            params={"code": "auth-code-123", "state": state},
+        )
+
+        assert response.status_code == 200
+        assert "eBay authorization accepted" in response.text
+        assert "close this window" in response.text
+
+
+def test_ebay_rejected_page_shows_simple_message(client):
+    response = client.get(
+        "/auth/ebay/rejected",
+        params={"error": "access_denied", "error_description": "User declined access"},
+    )
+
+    assert response.status_code == 200
+    assert "eBay authorization rejected" in response.text
+    assert "User declined access" in response.text
