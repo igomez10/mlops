@@ -59,7 +59,7 @@ class ProductAnalyzer:
 
         model_name = _default_model()
         p_hash = prompt_hash(PROMPT)
-        media_resolution = "media_resolution_high"
+        media_resolution = "default"
 
         with track_run() as rec:
             rec.set_param("model", model_name)
@@ -107,7 +107,7 @@ class ProductAnalyzer:
                         }
                     )
                     message = str(exc)
-                    if "GEMINI_API_KEY" in message:
+                    if "GOOGLE_CLOUD_PROJECT" in message or "credentials" in message.lower():
                         raise HTTPException(status_code=503, detail=message) from exc
                     raise HTTPException(status_code=502, detail=message) from exc
 
