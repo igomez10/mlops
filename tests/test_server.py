@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
 from urllib.parse import parse_qs, urlparse
 
 import pytest
@@ -10,6 +11,8 @@ from pkg.ebay import SELL_ACCOUNT_SCOPE, SELL_INVENTORY_SCOPE
 from server import (
     CreatePostsRequest,
     _make_ebay_state,
+    _pick_condition,
+    _resolve_ebay_category_id,
     _resolve_posts_backend,
     app,
     app_state,
@@ -384,3 +387,111 @@ def test_ebay_rejected_page_shows_simple_message(client):
     assert response.status_code == 200
     assert "eBay authorization rejected" in response.text
     assert "User declined access" in response.text
+
+
+# ---------------------------------------------------------------------------
+# _resolve_ebay_category_id
+# ---------------------------------------------------------------------------
+
+
+def _make_category_client(query_assert: str | None, category_id: str):
+    class _Client:
+        def get_category_suggestions(self, query, *, marketplace_id=None):
+            if query_assert is not None:
+                assert query == query_assert, f"expected query {query_assert!r}, got {query!r}"
+            return [SimpleNamespace(category_id=category_id)]
+
+    return _Client()
+
+
+def test_resolve_ebay_category_id_uses_product_name():
+    category_id = _resolve_ebay_category_id(
+        {"product_name": "Apple AirPods Pro"},
+        "fallback description",
+        client=_make_category_client("Apple AirPods Pro", "9355"),
+        marketplace_id="EBAY_US",
+    )
+    assert category_id == "9355"
+
+
+def test_resolve_ebay_category_id_falls_back_to_description_when_product_name_absent():
+    category_id = _resolve_ebay_category_id(
+        {},
+        "used headphones",
+        client=_make_category_client("used headphones", "112529"),
+        marketplace_id="EBAY_US",
+    )
+    assert category_id == "112529"
+
+
+def test_resolve_ebay_category_id_falls_back_when_product_name_is_blank():
+    category_id = _resolve_ebay_category_id(
+        {"product_name": "   "},
+        "bicycle frame",
+        client=_make_category_client("bicycle frame", "7294"),
+        marketplace_id="EBAY_US",
+    )
+    assert category_id == "7294"
+
+
+def test_resolve_ebay_category_id_returns_first_suggestion():
+    class _Client:
+        def get_category_suggestions(self, query, *, marketplace_id=None):
+            return [
+                SimpleNamespace(category_id="first-cat"),
+                SimpleNamespace(category_id="second-cat"),
+                SimpleNamespace(category_id="third-cat"),
+            ]
+
+    category_id = _resolve_ebay_category_id(
+        {"product_name": "some product"},
+        "fallback",
+        client=_Client(),
+        marketplace_id="EBAY_US",
+    )
+    assert category_id == "first-cat"
+
+
+def test_resolve_ebay_category_id_raises_when_no_suggestions():
+    class _Client:
+        def get_category_suggestions(self, query, *, marketplace_id=None):
+            return []
+
+    with pytest.raises(RuntimeError, match="no eBay category suggestions"):
+        _resolve_ebay_category_id(
+            {"product_name": "rare item"},
+            "fallback",
+            client=_Client(),
+            marketplace_id="EBAY_US",
+        )
+
+
+# ---------------------------------------------------------------------------
+# _pick_condition
+# ---------------------------------------------------------------------------
+
+
+def test_pick_condition_returns_desired_when_valid():
+    assert _pick_condition("USED_GOOD", ["NEW", "USED_GOOD", "USED_EXCELLENT"]) == "USED_GOOD"
+
+
+def test_pick_condition_upgrades_when_desired_not_available():
+    # USED_GOOD not available — should upgrade to USED_EXCELLENT
+    assert _pick_condition("USED_GOOD", ["NEW", "USED_EXCELLENT"]) == "USED_EXCELLENT"
+
+
+def test_pick_condition_upgrades_to_new_as_last_resort():
+    assert _pick_condition("USED_ACCEPTABLE", ["NEW"]) == "NEW"
+
+
+def test_pick_condition_downgrades_when_no_better_option():
+    # Only a worse condition is available
+    assert _pick_condition("USED_EXCELLENT", ["USED_GOOD"]) == "USED_GOOD"
+
+
+def test_pick_condition_returns_first_valid_for_unknown_desired():
+    assert _pick_condition("SOME_UNKNOWN", ["USED_GOOD", "NEW"]) == "USED_GOOD"
+
+
+def test_pick_condition_returns_desired_when_no_valid_list():
+    assert _pick_condition("USED_GOOD", []) == "USED_GOOD"

@@ -120,4 +120,71 @@ test.describe('posts UI', () => {
     await expect(panel.getByTestId('post-listings-empty')).toBeVisible()
     await expect(panel.getByTestId('post-images-empty')).toBeVisible()
   })
+
+  test('shows product analysis details and published ebay link', async ({
+    page,
+    request,
+  }) => {
+    const seed = await request.post(`${PLAYWRIGHT_API_BASE}/__e2e__/seed-post`, {
+      data: {
+        name: `airpods-e2e-${Date.now()}`,
+        description: 'AirPods Pro with charging case',
+        analysis: {
+          product_name: 'Apple AirPods Pro',
+          brand: 'Apple',
+          model: 'AirPods Pro',
+          category: 'Earbud Headphones',
+          condition_estimate: 'good',
+          visible_text: ['Apple', 'AirPods'],
+          confidence: 0.92,
+          price_estimate: {
+            low: 110,
+            high: 160,
+            currency: 'USD',
+            reasoning: 'Estimated from comparable products',
+            comparable_sources: [],
+          },
+        },
+        listings: [
+          {
+            id: 'listing-123',
+            marketplace_url: 'https://www.ebay.com/itm/listing-123',
+            status: 'PUBLISHED',
+            description: 'Apple AirPods Pro on eBay',
+          },
+        ],
+      },
+      headers: { 'Content-Type': 'application/json' },
+    })
+    if (!seed.ok()) {
+      throw new Error(`seed failed: ${seed.status()} ${await seed.text()}`)
+    }
+
+    await page.goto('/')
+    const row = page.getByTestId('post-row').filter({ hasText: 'AirPods Pro with charging case' })
+    await expect(row).toHaveCount(1)
+    await expect(row.getByTestId('post-ebay-link')).toHaveAttribute(
+      'href',
+      'https://www.ebay.com/itm/listing-123',
+    )
+
+    const postId = await row.getAttribute('data-post-id')
+    if (!postId) {
+      throw new Error('expected data-post-id on post row')
+    }
+    await row.getByTestId('post-toggle-listings').click()
+    const panel = page
+      .locator(`[data-testid="post-listings-row"][data-post-id="${postId}"]`)
+      .getByTestId('post-listings-panel')
+    await expect(panel.getByTestId('post-analysis-product-name')).toContainText(
+      'Apple AirPods Pro',
+    )
+    await expect(panel.getByTestId('post-analysis-price')).toContainText(
+      'USD 110–160',
+    )
+    await expect(panel.getByTestId('post-analysis-ebay-link')).toHaveAttribute(
+      'href',
+      'https://www.ebay.com/itm/listing-123',
+    )
+  })
 })

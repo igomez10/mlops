@@ -909,6 +909,57 @@ def test_inventory_helpers_require_user_token():
         client.create_inventory_location("loc-1", "", {})
 
 
+def test_create_inventory_location_succeeds_on_201():
+    client, transport = _make_client([_empty_response(201)])
+    client.create_inventory_location("loc-1", "tok", {"name": "loc-1"})
+    assert len(transport.requests) == 1
+
+
+def test_create_inventory_location_ignores_already_exists_error():
+    already_exists = _json_response(
+        {"errors": [{"errorId": 25803, "domain": "API_INVENTORY", "message": "merchantLocationKey already exists."}]},
+        status_code=400,
+    )
+    client, transport = _make_client([already_exists])
+    # Should not raise even though the server returned 400
+    client.create_inventory_location("loc-1", "tok", {"name": "loc-1"})
+    assert len(transport.requests) == 1
+
+
+def test_create_inventory_location_raises_on_other_400():
+    other_error = _json_response(
+        {"errors": [{"errorId": 25001, "message": "Some other error."}]},
+        status_code=400,
+    )
+    client, _ = _make_client([other_error])
+    with pytest.raises(Exception):
+        client.create_inventory_location("loc-1", "tok", {"name": "loc-1"})
+
+
+def test_get_valid_conditions_returns_condition_enums():
+    body = {
+        "itemConditionPolicies": [
+            {
+                "categoryId": "9355",
+                "itemConditions": [
+                    {"conditionDescription": "New", "conditionEnum": "NEW", "conditionId": "1000"},
+                    {"conditionDescription": "Used - Excellent", "conditionEnum": "USED_EXCELLENT", "conditionId": "3000"},
+                    {"conditionDescription": "Used - Good", "conditionEnum": "USED_GOOD", "conditionId": "4000"},
+                ],
+            }
+        ]
+    }
+    client, transport = _make_client([_json_response(_token_response()), _json_response(body)])
+    result = client.get_valid_conditions("9355", marketplace_id="EBAY_US")
+    assert result == ["NEW", "USED_EXCELLENT", "USED_GOOD"]
+    assert transport.requests[-1].url.params["category_id"] == "9355"
+
+
+def test_get_valid_conditions_returns_empty_when_no_policies():
+    client, _ = _make_client([_json_response(_token_response()), _json_response({"itemConditionPolicies": []})])
+    assert client.get_valid_conditions("9355") == []
+
+
 def test_get_fulfillment_policies_returns_parsed_models():
     client, transport = _make_client(
         [

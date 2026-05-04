@@ -25,6 +25,25 @@ _TAXONOMY_BASE_PROD = "https://api.ebay.com/commerce/taxonomy/v1"
 _TAXONOMY_BASE_SBX = "https://api.sandbox.ebay.com/commerce/taxonomy/v1"
 _METADATA_BASE_PROD = "https://api.ebay.com/sell/metadata/v1"
 _METADATA_BASE_SBX = "https://api.sandbox.ebay.com/sell/metadata/v1"
+# Maps legacy Trading API conditionId integers to Inventory API conditionEnum strings.
+# Used as a fallback when the Metadata API (sandbox) omits the conditionEnum field.
+_CONDITION_ID_TO_ENUM: dict[str, str] = {
+    "1000": "NEW",
+    "1500": "NEW_OTHER",
+    "1750": "NEW_WITH_DEFECTS",
+    "2000": "MANUFACTURER_REFURBISHED",
+    "2010": "CERTIFIED_REFURBISHED",
+    "2020": "EXCELLENT_REFURBISHED",
+    "2030": "VERY_GOOD_REFURBISHED",
+    "2500": "SELLER_REFURBISHED",
+    "2750": "LIKE_NEW",
+    "3000": "USED_EXCELLENT",
+    "4000": "USED_VERY_GOOD",
+    "5000": "USED_GOOD",
+    "6000": "USED_ACCEPTABLE",
+    "7000": "FOR_PARTS_OR_NOT_WORKING",
+}
+
 _SCOPE = "https://api.ebay.com/oauth/api_scope"
 SELL_INVENTORY_SCOPE = "https://api.ebay.com/oauth/api_scope/sell.inventory"
 SELL_ACCOUNT_SCOPE = "https://api.ebay.com/oauth/api_scope/sell.account"
@@ -125,6 +144,7 @@ class EbayClient:
         self._client_id = client_id
         self._client_secret = client_secret
         self._marketplace_id = marketplace_id
+        self._sandbox = sandbox
         self._token_url = _TOKEN_URL_SBX if sandbox else _TOKEN_URL_PROD
         self._auth_url = _AUTH_URL_SBX if sandbox else _AUTH_URL_PROD
         self._browse_base = _BROWSE_BASE_SBX if sandbox else _BROWSE_BASE_PROD
@@ -145,6 +165,7 @@ class EbayClient:
             client_id=settings.ebay_app_id,
             client_secret=settings.ebay_cert_id,
             sandbox=settings.ebay_sandbox,
+            marketplace_id=settings.ebay_marketplace_id,
         )
 
     # ------------------------------------------------------------------
@@ -326,12 +347,19 @@ class EbayClient:
         user_token: str,
         payload: dict[str, Any],
     ) -> None:
-        """Create an Inventory API location using seller auth."""
+        """Create an Inventory API location using seller auth.
+
+        Silently succeeds if the location already exists (errorId 25803).
+        """
         response = self._http.post(
             f"{self._inventory_base}/location/{merchant_location_key}",
             headers=self._inventory_headers(user_token),
             json=payload,
         )
+        if response.status_code == 400:
+            errors = (response.json() or {}).get("errors") or []
+            if any(e.get("errorId") == 25803 for e in errors):
+                return
         self._raise_for_status(response)
 
     def create_or_replace_inventory_item(
@@ -605,6 +633,51 @@ class EbayClient:
         )
         self._raise_for_status(response)
         return response.json()
+
+    def get_item_aspects_for_category(
+        self,
+        category_id: str,
+        *,
+        category_tree_id: str | None = None,
+    ) -> list[dict[str, Any]]:
+        """Return the aspect definitions for a category (required + recommended)."""
+        tree_id = category_tree_id or self.get_default_category_tree_id()
+        response = self._http.get(
+            f"{self._taxonomy_base}/category_tree/{tree_id}/get_item_aspects_for_category",
+            headers={"Authorization": f"Bearer {self._token()}"},
+            params={"category_id": category_id},
+        )
+        self._raise_for_status(response)
+        return list(response.json().get("aspects") or [])
+
+    def get_valid_conditions(
+        self,
+        category_id: str,
+        *,
+        marketplace_id: str | None = None,
+    ) -> list[str]:
+        """Return the conditionEnum strings valid for the given category."""
+        resolved_marketplace = marketplace_id or self._marketplace_id
+        response = self._http.get(
+            f"{self._metadata_base}/marketplace/{resolved_marketplace}/get_item_condition_policies",
+            headers={"Authorization": f"Bearer {self._token()}"},
+            params={"category_id": category_id},
+        )
+        self._raise_for_status(response)
+        body = response.json()
+        policies = body.get("itemConditionPolicies") or []
+        if not policies:
+            return []
+        conditions = policies[0].get("itemConditions") or []
+        result: list[str] = []
+        for c in conditions:
+            if c.get("conditionEnum"):
+                result.append(str(c["conditionEnum"]))
+            elif c.get("conditionId"):
+                mapped = _CONDITION_ID_TO_ENUM.get(str(c["conditionId"]))
+                if mapped:
+                    result.append(mapped)
+        return result
 
     def get_fulfillment_policies(
         self,

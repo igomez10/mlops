@@ -473,6 +473,16 @@ code {
   color: #991b1b;
 }
 
+.badge.link {
+  background: #dbeafe;
+  color: #1d4ed8;
+  text-decoration: none;
+}
+
+.badge.link:hover {
+  background: #bfdbfe;
+}
+
 .sr-only {
   position: absolute;
   width: 1px;
@@ -532,13 +542,101 @@ tr.post-listings-row > td {
   margin-bottom: 0.25rem;
 }
 
+.post-analysis-block {
+  padding: 0.25rem 0 0.5rem;
+  border-bottom: 1px solid var(--color-border);
+}
+
 .post-images-heading,
-.post-listings-heading {
+.post-listings-heading,
+.post-analysis-heading,
+.post-ebay-draft-heading {
   margin: 0 0 0.5rem;
   font-size: 0.88rem;
   font-weight: 700;
   color: var(--color-accent-ink);
   letter-spacing: -0.01em;
+}
+
+.post-section-heading-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 0.75rem;
+}
+
+.post-analysis-ebay-link {
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
+.post-ebay-draft-block {
+  padding: 0.25rem 0 0.75rem;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.post-ebay-draft-actions {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.post-ebay-draft-grid {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  align-items: center;
+  gap: 0.4rem 0.75rem;
+  margin-top: 0.5rem;
+}
+
+.post-ebay-draft-label {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--color-ink-muted);
+  white-space: nowrap;
+}
+
+.post-ebay-draft-input {
+  width: 100%;
+  padding: 0.3rem 0.5rem;
+  font-size: 0.85rem;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  color: var(--color-ink);
+  box-sizing: border-box;
+}
+
+.post-ebay-draft-input:focus {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 1px;
+}
+
+.post-analysis-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
+  gap: 0.6rem;
+}
+
+.post-analysis-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  padding: 0.65rem 0.75rem;
+  background: #fffdf8;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+}
+
+.post-analysis-card-wide {
+  grid-column: 1 / -1;
+}
+
+.post-analysis-label {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-muted);
 }
 
 .post-images-grid {

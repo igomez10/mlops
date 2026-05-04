@@ -2,7 +2,7 @@ from datetime import datetime, timezone
 
 import pytest
 
-from pkg.posts import InMemoryPostRepository
+from pkg.posts import InMemoryPostRepository, Listing
 
 
 def test_create_sets_id_and_timestamps():
@@ -204,3 +204,35 @@ def test_create_with_fixed_post_id():
     pid = "00000000-0000-4000-8000-000000000001"
     post = repo.create("x", post_id=pid, image_urls=[])
     assert post.id == pid
+
+
+def test_create_uses_explicit_listings_when_provided():
+    repo = InMemoryPostRepository()
+    now = datetime.now(timezone.utc)
+    listing = Listing(
+        id="listing-123",
+        marketplace_url="https://www.ebay.com/itm/listing-123",
+        image_url="posts/p1/a.jpg",
+        created_at=now,
+        status="PUBLISHED",
+        description="Published listing",
+    )
+    post = repo.create("explicit", image_urls=["posts/p1/a.jpg"], listings=[listing])
+    assert post.listings == [listing]
+
+
+def test_replace_listings_swaps_placeholder_listing():
+    repo = InMemoryPostRepository()
+    post = repo.create("replace", image_urls=["posts/p1/a.jpg"])
+    assert len(post.listings) == 1
+    replacement = Listing(
+        id="listing-999",
+        marketplace_url="https://www.ebay.com/itm/listing-999",
+        image_url="posts/p1/a.jpg",
+        created_at=datetime.now(timezone.utc),
+        status="PUBLISHED",
+        description="eBay listing",
+    )
+    updated = repo.replace_listings(post.id, [replacement])
+    assert updated is not None
+    assert updated.listings == [replacement]

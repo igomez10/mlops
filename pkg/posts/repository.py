@@ -55,14 +55,16 @@ class PostRepository(Protocol):
         post_id: str | None = None,
         image_urls: list[str] | None = None,
         analysis: dict | None = None,
+        listings: list[Listing] | None = None,
     ) -> Post:
         """
-        Create a post; listings are derived from ``image_urls`` (one draft listing per image).
+        Create a post.
 
         If ``post_id`` is set (e.g. after uploading images to storage under that
         id), the new post uses that id; otherwise an id is generated.
         ``analysis`` is an optional opaque dict (e.g. Gemini product analysis)
-        stored verbatim on the post. Raises ``ValueError`` if the name is
+        stored verbatim on the post. If ``listings`` is omitted, default draft
+        listings are derived from ``image_urls``. Raises ``ValueError`` if the name is
         invalid or not unique among active posts.
         """
 
@@ -83,6 +85,12 @@ class PostRepository(Protocol):
 
     def soft_delete(self, post_id: str) -> Post | None:
         """Set ``deleted_at`` / ``updated_at`` if the post exists and is not already deleted."""
+
+    def replace_listings(self, post_id: str, listings: list[Listing]) -> Post | None:
+        """Replace a post's embedded marketplace listings."""
+
+    def set_ebay_draft(self, post_id: str, draft: dict | None) -> Post | None:
+        """Store (or clear) the eBay listing draft on the post."""
 
 
 class InMemoryPostRepository:
@@ -129,6 +137,7 @@ class InMemoryPostRepository:
         post_id: str | None = None,
         image_urls: list[str] | None = None,
         analysis: dict | None = None,
+        listings: list[Listing] | None = None,
     ) -> Post:
         key = _normalize_name(name)
         if key in self._id_by_normalized_name:
@@ -139,7 +148,9 @@ class InMemoryPostRepository:
         pid = post_id or str(uuid.uuid4())
         desc = description.strip() if description else ""
         list_caption = desc or key
-        listings = _synthetic_listings_for_new_post(list_caption, urls, now)
+        resolved_listings = (
+            list(listings) if listings is not None else _synthetic_listings_for_new_post(list_caption, urls, now)
+        )
         post = Post(
             id=pid,
             name=key,
@@ -147,9 +158,10 @@ class InMemoryPostRepository:
             updated_at=now,
             deleted_at=None,
             description=desc,
-            listings=listings,
+            listings=resolved_listings,
             image_urls=urls,
             analysis=analysis,
+            ebay_draft=None,
         )
         self._by_id[post.id] = post
         self._id_by_normalized_name[key] = post.id
@@ -192,4 +204,20 @@ class InMemoryPostRepository:
         post.deleted_at = now
         post.updated_at = now
         del self._id_by_normalized_name[old_key]
+        return post
+
+    def replace_listings(self, post_id: str, listings: list[Listing]) -> Post | None:
+        post = self.get_by_id(post_id, include_deleted=False)
+        if post is None:
+            return None
+        post.listings = list(listings)
+        post.updated_at = _utc_now()
+        return post
+
+    def set_ebay_draft(self, post_id: str, draft: dict | None) -> Post | None:
+        post = self.get_by_id(post_id, include_deleted=False)
+        if post is None:
+            return None
+        post.ebay_draft = draft
+        post.updated_at = _utc_now()
         return post

@@ -27,7 +27,7 @@ FASTAPI_IMAGE := $(GCP_REGION)-docker.pkg.dev/$(GCP_PROJECT)/fastapi/fastapi:lat
 FASTAPI_DEV_IMAGE := $(GCP_REGION)-docker.pkg.dev/$(GCP_PROJECT)/fastapi/fastapi-ignacio:latest
 MLFLOW_VERSION := v3.10.1-full
 
-.PHONY: build run stop clean tf-plan tf-apply gcp-build-app push-mlflow push-fastapi push-fastapi-dev redeploy-mlflow redeploy-fastapi redeploy-fastapi-dev deploy-fastapi-local deploy-fastapi-dev-local run-fastapi run-fastapi-firestore compose-up-dev dev-server dev-server-mongo start-docker-compose frontend-install frontend-dev ui frontend-e2e lint completion-zsh vertex-upload-toy-model vertex-deploy-toy-model vertex-undeploy-toy-model
+.PHONY: build run stop clean tf-plan tf-apply gcp-build-app push-mlflow push-fastapi push-fastapi-dev redeploy-mlflow redeploy-fastapi redeploy-fastapi-dev deploy-fastapi-local deploy-fastapi-dev-local run-fastapi run-fastapi-firestore compose-up-dev dev-server dev-server-mongo start-docker-compose frontend-install frontend-dev ui frontend-e2e lint test completion-zsh vertex-upload-toy-model vertex-deploy-toy-model vertex-undeploy-toy-model
 
 build-fastapi:
 	docker build -t $(FASTAPI_IMAGE) -f Dockerfile.fastapi .
@@ -162,6 +162,11 @@ ui: frontend-dev
 # Playwright starts API (in-memory Mongo) + Vite on ports 9876 / 5174 (see frontend/e2e/ports.ts).
 frontend-e2e:
 	cd frontend && CI=1 npm run test:e2e
+
+test:
+	$(LOAD_DOTENV) \
+	GOOGLE_CLOUD_PROJECT=$(GCP_PROJECT) \
+	uv run pytest tests/ -q -k "not live and not sandbox"
 
 lint:
 	uv sync --frozen --group dev

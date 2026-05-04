@@ -194,7 +194,7 @@ def test_sandbox_can_fetch_listing_policies(client):
 
 
 @pytest.mark.sandbox
-def test_sandbox_can_create_listing():
+def test_sandbox_can_create_listing(client: EbayClient):
     """Create and publish a disposable sandbox listing with seller credentials.
 
     Required env vars:
@@ -251,7 +251,12 @@ def test_sandbox_can_create_listing():
                     "brand": "Codex",
                     "mpn": f"codex-{suffix}",
                     "imageUrls": [cfg["image_url"]],
-                    "aspects": {"Brand": ["Codex"]},
+                    "aspects": {
+                        "Brand": ["Codex"],
+                        "Color": ["White"],
+                        "Model": [f"Codex-{suffix}"],
+                        "Storage Capacity": ["64 GB"],
+                    },
                 },
             },
         )

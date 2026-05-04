@@ -6,8 +6,14 @@ import {
   useId,
   useState,
 } from 'react'
-import { createPostWithImage, fetchPosts, updatePost } from '../api/client'
-import type { Post } from '../types/post'
+import {
+  createPostWithImage,
+  fetchPosts,
+  publishEbayListing,
+  updateEbayDraft,
+  updatePost,
+} from '../api/client'
+import type { EbayDraft, Post } from '../types/post'
 
 /** ISO instant → e.g. "10 minutes ago" (uses browser locale). */
 function formatRelativeWhen(iso: string, at: Date): string {
@@ -57,6 +63,30 @@ function postImageUrls(p: Post) {
   return p.image_urls ?? []
 }
 
+function postAnalysis(p: Post) {
+  return p.analysis ?? null
+}
+
+function publishedListing(p: Post) {
+  return postListings(p).find((listing) => {
+    const status = listing.status?.toLowerCase() ?? ''
+    return status.includes('publish') || status.includes('active')
+  }) ?? null
+}
+
+function formatPriceRange(p: Post) {
+  const analysis = postAnalysis(p)
+  const price = analysis?.price_estimate
+  if (!price) return null
+  const currency = price.currency?.trim() || 'USD'
+  if (price.low > 0 && price.high > 0) {
+    return `${currency} ${price.low}–${price.high}`
+  }
+  if (price.high > 0) return `${currency} ${price.high}`
+  if (price.low > 0) return `${currency} ${price.low}`
+  return null
+}
+
 /** Primary line in the list: user description, or internal name. */
 function postLabel(p: Post) {
   const d = p.description?.trim()
@@ -74,6 +104,7 @@ export function PostList() {
   const [createOpen, setCreateOpen] = useState(false)
   const [createDescription, setCreateDescription] = useState('')
   const [createImage, setCreateImage] = useState<File | null>(null)
+  const [createUserId, setCreateUserId] = useState('')
   const [creating, setCreating] = useState(false)
 
   const [editingId, setEditingId] = useState<string | null>(null)
@@ -81,6 +112,12 @@ export function PostList() {
   const [savingId, setSavingId] = useState<string | null>(null)
 
   const [expandedIds, setExpandedIds] = useState<Set<string>>(() => new Set())
+
+  const [draftEdits, setDraftEdits] = useState<
+    Record<string, Partial<EbayDraft>>
+  >({})
+  const [savingDraftId, setSavingDraftId] = useState<string | null>(null)
+  const [publishingId, setPublishingId] = useState<string | null>(null)
 
   const loadPosts = useCallback(async () => {
     setLoadError(null)
@@ -116,6 +153,7 @@ export function PostList() {
     setActionError(null)
     setCreateDescription('')
     setCreateImage(null)
+    setCreateUserId('')
     setCreateOpen(true)
   }
 
@@ -132,10 +170,13 @@ export function PostList() {
     setActionError(null)
     setCreating(true)
     try {
-      await createPostWithImage(createDescription.trim(), createImage)
+      await createPostWithImage(createDescription.trim(), createImage, {
+        userId: createUserId.trim() || undefined,
+      })
       setCreateOpen(false)
       setCreateDescription('')
       setCreateImage(null)
+      setCreateUserId('')
       await loadPosts()
     } catch (err: unknown) {
       setActionError(err instanceof Error ? err.message : 'Create failed')
@@ -173,6 +214,76 @@ export function PostList() {
       setActionError(err instanceof Error ? err.message : 'Update failed')
     } finally {
       setSavingId(null)
+    }
+  }
+
+  function getDraftEdit(p: Post): Partial<EbayDraft> {
+    return draftEdits[p.id] ?? (p.ebay_draft ?? {})
+  }
+
+  function setDraftField<K extends keyof EbayDraft>(
+    postId: string,
+    base: EbayDraft,
+    key: K,
+    value: EbayDraft[K],
+  ) {
+    setDraftEdits((prev) => ({
+      ...prev,
+      [postId]: { ...(prev[postId] ?? base), [key]: value },
+    }))
+  }
+
+  function setItemSpecific(
+    postId: string,
+    base: EbayDraft,
+    name: string,
+    value: string,
+  ) {
+    setDraftEdits((prev) => {
+      const existing = prev[postId] ?? base
+      return {
+        ...prev,
+        [postId]: {
+          ...existing,
+          item_specifics: {
+            ...(existing.item_specifics ?? base.item_specifics),
+            [name]: [value],
+          },
+        },
+      }
+    })
+  }
+
+  async function handleSaveDraft(p: Post) {
+    const edits = draftEdits[p.id]
+    if (!edits) return
+    setActionError(null)
+    setSavingDraftId(p.id)
+    try {
+      const updated = await updateEbayDraft(p.id, edits)
+      setPosts((prev) => prev?.map((x) => (x.id === p.id ? updated : x)) ?? prev)
+      setDraftEdits((prev) => {
+        const n = { ...prev }
+        delete n[p.id]
+        return n
+      })
+    } catch (err: unknown) {
+      setActionError(err instanceof Error ? err.message : 'Save draft failed')
+    } finally {
+      setSavingDraftId(null)
+    }
+  }
+
+  async function handlePublish(p: Post) {
+    setActionError(null)
+    setPublishingId(p.id)
+    try {
+      const updated = await publishEbayListing(p.id)
+      setPosts((prev) => prev?.map((x) => (x.id === p.id ? updated : x)) ?? prev)
+    } catch (err: unknown) {
+      setActionError(err instanceof Error ? err.message : 'Publish failed')
+    } finally {
+      setPublishingId(null)
     }
   }
 
@@ -235,6 +346,19 @@ export function PostList() {
                 setCreateImage(f)
               }}
             />
+            <label className="post-create-label" htmlFor="post-create-user-id">
+              eBay user ID
+            </label>
+            <input
+              id="post-create-user-id"
+              type="text"
+              className="post-create-input"
+              value={createUserId}
+              onChange={(e) => setCreateUserId(e.target.value)}
+              disabled={creating}
+              placeholder="Optional: enables automatic eBay publish"
+              data-testid="post-create-user-id"
+            />
             <div className="post-create-dialog-actions">
               <button
                 type="button"
@@ -257,7 +381,8 @@ export function PostList() {
             </div>
             <p className="post-create-hint muted">
               We upload your photo securely first, then save your item so we can
-              prepare your eBay listing.
+              prepare your eBay listing. Add an eBay user ID if you want us to
+              publish it immediately after analysis.
             </p>
           </form>
         </div>
@@ -308,6 +433,9 @@ export function PostList() {
               {posts.map((p) => {
                 const listings = postListings(p)
                 const images = postImageUrls(p)
+                const analysis = postAnalysis(p)
+                const ebayListing = publishedListing(p)
+                const priceRange = formatPriceRange(p)
                 const isOpen = expandedIds.has(p.id)
                 return (
                   <Fragment key={p.id}>
@@ -362,6 +490,16 @@ export function PostList() {
                           <span className="badge deleted" title={p.deleted_at}>
                             Deleted
                           </span>
+                        ) : ebayListing ? (
+                          <a
+                            className="badge link"
+                            href={ebayListing.marketplace_url}
+                            target="_blank"
+                            rel="noreferrer"
+                            data-testid="post-ebay-link"
+                          >
+                            Live on eBay
+                          </a>
                         ) : (
                           <span className="badge active">Active</span>
                         )}
@@ -454,6 +592,165 @@ export function PostList() {
                                 </div>
                               )}
                             </div>
+                            <div className="post-analysis-block">
+                              <div className="post-section-heading-row">
+                                <h4 className="post-analysis-heading">Product analysis</h4>
+                                {ebayListing ? (
+                                  <a
+                                    href={ebayListing.marketplace_url}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="post-analysis-ebay-link"
+                                    data-testid="post-analysis-ebay-link"
+                                  >
+                                    View eBay listing
+                                  </a>
+                                ) : null}
+                              </div>
+                              {analysis ? (
+                                <div
+                                  className="post-analysis-grid"
+                                  data-testid="post-analysis-grid"
+                                >
+                                  <div className="post-analysis-card">
+                                    <span className="post-analysis-label">Product</span>
+                                    <strong data-testid="post-analysis-product-name">
+                                      {analysis.product_name || '—'}
+                                    </strong>
+                                  </div>
+                                  <div className="post-analysis-card">
+                                    <span className="post-analysis-label">Brand</span>
+                                    <strong>{analysis.brand || '—'}</strong>
+                                  </div>
+                                  <div className="post-analysis-card">
+                                    <span className="post-analysis-label">Model</span>
+                                    <strong>{analysis.model || '—'}</strong>
+                                  </div>
+                                  <div className="post-analysis-card">
+                                    <span className="post-analysis-label">Category</span>
+                                    <strong>{analysis.category || '—'}</strong>
+                                  </div>
+                                  <div className="post-analysis-card">
+                                    <span className="post-analysis-label">Condition</span>
+                                    <strong>{analysis.condition_estimate || '—'}</strong>
+                                  </div>
+                                  <div className="post-analysis-card">
+                                    <span className="post-analysis-label">Price estimate</span>
+                                    <strong data-testid="post-analysis-price">
+                                      {priceRange || '—'}
+                                    </strong>
+                                  </div>
+                                  <div className="post-analysis-card">
+                                    <span className="post-analysis-label">Confidence</span>
+                                    <strong>
+                                      {Number.isFinite(analysis.confidence)
+                                        ? `${Math.round(analysis.confidence * 100)}%`
+                                        : '—'}
+                                    </strong>
+                                  </div>
+                                  <div className="post-analysis-card post-analysis-card-wide">
+                                    <span className="post-analysis-label">Visible text</span>
+                                    <strong>
+                                      {analysis.visible_text?.length
+                                        ? analysis.visible_text.join(', ')
+                                        : '—'}
+                                    </strong>
+                                  </div>
+                                </div>
+                              ) : (
+                                <p className="muted" data-testid="post-analysis-empty">
+                                  No product analysis available yet.
+                                </p>
+                              )}
+                            </div>
+                            {p.ebay_draft ? (() => {
+                              const draft = p.ebay_draft
+                              const edit = getDraftEdit(p) as Partial<EbayDraft>
+                              const isSaving = savingDraftId === p.id
+                              const isPublishing = publishingId === p.id
+                              const hasEdits = !!draftEdits[p.id]
+                              const specifics = edit.item_specifics ?? draft.item_specifics ?? {}
+                              return (
+                                <div className="post-ebay-draft-block" data-testid="post-ebay-draft">
+                                  <div className="post-section-heading-row">
+                                    <h4 className="post-ebay-draft-heading">eBay listing draft</h4>
+                                    <div className="post-ebay-draft-actions">
+                                      {hasEdits ? (
+                                        <button
+                                          type="button"
+                                          className="secondary"
+                                          onClick={() => handleSaveDraft(p)}
+                                          disabled={isSaving || isPublishing}
+                                          data-testid="post-ebay-draft-save"
+                                        >
+                                          {isSaving ? 'Saving…' : 'Save changes'}
+                                        </button>
+                                      ) : null}
+                                      <button
+                                        type="button"
+                                        onClick={() => handlePublish(p)}
+                                        disabled={isSaving || isPublishing || hasEdits}
+                                        data-testid="post-ebay-draft-publish"
+                                      >
+                                        {isPublishing ? 'Publishing…' : 'Publish on eBay'}
+                                      </button>
+                                    </div>
+                                  </div>
+                                  <div className="post-ebay-draft-grid">
+                                    <label className="post-ebay-draft-label" htmlFor={`draft-title-${p.id}`}>Title</label>
+                                    <input
+                                      id={`draft-title-${p.id}`}
+                                      type="text"
+                                      className="post-ebay-draft-input"
+                                      value={edit.title ?? draft.title}
+                                      onChange={(e) => setDraftField(p.id, draft, 'title', e.target.value)}
+                                      disabled={isSaving || isPublishing}
+                                      data-testid="post-ebay-draft-title"
+                                    />
+                                    <label className="post-ebay-draft-label" htmlFor={`draft-condition-${p.id}`}>Condition</label>
+                                    <input
+                                      id={`draft-condition-${p.id}`}
+                                      type="text"
+                                      className="post-ebay-draft-input"
+                                      value={edit.condition ?? draft.condition}
+                                      onChange={(e) => setDraftField(p.id, draft, 'condition', e.target.value)}
+                                      disabled={isSaving || isPublishing}
+                                      data-testid="post-ebay-draft-condition"
+                                    />
+                                    <label className="post-ebay-draft-label" htmlFor={`draft-price-${p.id}`}>
+                                      Price ({edit.currency ?? draft.currency})
+                                    </label>
+                                    <input
+                                      id={`draft-price-${p.id}`}
+                                      type="number"
+                                      min="0"
+                                      step="0.01"
+                                      className="post-ebay-draft-input"
+                                      value={edit.price ?? draft.price}
+                                      onChange={(e) => setDraftField(p.id, draft, 'price', parseFloat(e.target.value) || 0)}
+                                      disabled={isSaving || isPublishing}
+                                      data-testid="post-ebay-draft-price"
+                                    />
+                                    {Object.entries(specifics).map(([name, vals]) => (
+                                      <Fragment key={name}>
+                                        <label className="post-ebay-draft-label" htmlFor={`draft-spec-${p.id}-${name}`}>
+                                          {name}
+                                        </label>
+                                        <input
+                                          id={`draft-spec-${p.id}-${name}`}
+                                          type="text"
+                                          className="post-ebay-draft-input"
+                                          value={vals[0] ?? ''}
+                                          onChange={(e) => setItemSpecific(p.id, draft, name, e.target.value)}
+                                          disabled={isSaving || isPublishing}
+                                          data-testid={`post-ebay-draft-spec-${name.toLowerCase().replace(/\s+/g, '-')}`}
+                                        />
+                                      </Fragment>
+                                    ))}
+                                  </div>
+                                </div>
+                              )
+                            })() : null}
                             <h4 className="post-listings-heading">eBay listings we manage</h4>
                             {listings.length === 0 ? (
                               <p

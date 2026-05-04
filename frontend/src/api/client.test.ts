@@ -59,15 +59,19 @@ describe('client', () => {
     const file = new File([new Uint8Array([1, 2, 3])], 'a.png', {
       type: 'image/png',
     })
-    const result = await createPostWithImage('A', file)
+    const result = await createPostWithImage('A', file, { userId: 'user-123' })
     expect(result).toEqual(out)
-    expect(fetch).toHaveBeenCalledWith(
-      'http://test.posts/posts',
+    expect(fetch).toHaveBeenCalledTimes(1)
+    const [, requestInit] = vi.mocked(fetch).mock.calls[0]
+    expect(requestInit).toEqual(
       expect.objectContaining({
         method: 'POST',
         body: expect.any(FormData),
       }),
     )
+    const form = requestInit?.body as FormData
+    expect(form.get('description')).toBe('A')
+    expect(form.get('user_id')).toBe('user-123')
   })
 
   it('updatePost sends body object', async () => {

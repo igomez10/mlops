@@ -35,6 +35,11 @@ class CloudSettings:
     ebay_cert_id: str | None = None
     ebay_sandbox: bool = False
     ebay_runame: str | None = None
+    ebay_marketplace_id: str = "EBAY_US"
+    ebay_merchant_location_key: str = "mlops-default"
+    ebay_location_city: str = "San Jose"
+    ebay_location_state: str = "CA"
+    ebay_location_country: str = "US"
 
     @classmethod
     def from_env(cls) -> CloudSettings:
@@ -52,4 +57,9 @@ class CloudSettings:
             ebay_cert_id=_env("EBAY_CERT_ID"),
             ebay_sandbox=_env_bool("EBAY_SANDBOX", default=False),
             ebay_runame=_env("EBAY_RUNAME") or _env("EBAY_REDIRECT_URI"),
+            ebay_marketplace_id=_env("EBAY_MARKETPLACE_ID") or "EBAY_US",
+            ebay_merchant_location_key=_env("EBAY_MERCHANT_LOCATION_KEY") or "mlops-default",
+            ebay_location_city=_env("EBAY_LOCATION_CITY") or "San Jose",
+            ebay_location_state=_env("EBAY_LOCATION_STATE") or "CA",
+            ebay_location_country=_env("EBAY_LOCATION_COUNTRY") or "US",
         )
