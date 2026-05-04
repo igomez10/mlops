@@ -1081,11 +1081,13 @@ def _parse_category_suggestion(
 
 
 def _parse_shipping_service_option(raw: dict[str, Any]) -> ShippingServiceOption:
+    raw_min_shipping_time = raw.get("minShippingTime")
+    raw_max_shipping_time = raw.get("maxShippingTime")
     return ShippingServiceOption(
         description=(str(raw.get("description")) if raw.get("description") is not None else None),
         international_service=(
             bool(raw.get("internationalService")) if raw.get("internationalService") is not None else None
         ),
-        min_shipping_time=(int(raw.get("minShippingTime")) if raw.get("minShippingTime") is not None else None),
-        max_shipping_time=(int(raw.get("maxShippingTime")) if raw.get("maxShippingTime") is not None else None),
+        min_shipping_time=(int(raw_min_shipping_time) if raw_min_shipping_time is not None else None),
+        max_shipping_time=(int(raw_max_shipping_time) if raw_max_shipping_time is not None else None),
     )
