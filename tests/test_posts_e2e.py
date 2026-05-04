@@ -282,11 +282,7 @@ def test_e2e_live_server_upload_airpods_prefills_required_ebay_fields() -> None:
         blank_required_fields = {
             key: values
             for key, values in item_specifics.items()
-            if not (
-                isinstance(values, list)
-                and values
-                and str(values[0]).strip()
-            )
+            if not (isinstance(values, list) and values and str(values[0]).strip())
         }
         assert not blank_required_fields, item_specifics
         # Gemini must have contributed aspects beyond the trivially-known Brand/Model.

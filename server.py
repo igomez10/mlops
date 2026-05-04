@@ -602,6 +602,7 @@ app.add_middleware(
 )
 
 if os.environ.get("E2E_TEST") == "1":
+
     class _E2EImageStorage:
         def __init__(self, bucket_name: str = "mlops-images") -> None:
             self.bucket_name = bucket_name

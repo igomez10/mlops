@@ -365,14 +365,17 @@ def test_post_create_uploads_airpods_and_publishes_ebay_listing_end_to_end(
     app_state["images_storage"] = _make_storage_mock()
     app_state["ebay_token_repository"] = _seed_ebay_repo("user-123")
     try:
-        with patch("server._get_ebay_client", lambda settings: fake_client), patch(
-            "server.EbayDraftPrefillService._build_item_specifics",
-            return_value={
-                "Brand": ["Apple"],
-                "Model": ["AirPods Pro"],
-                "Color": ["White"],
-                "Connectivity": ["Bluetooth"],
-            },
+        with (
+            patch("server._get_ebay_client", lambda settings: fake_client),
+            patch(
+                "server.EbayDraftPrefillService._build_item_specifics",
+                return_value={
+                    "Brand": ["Apple"],
+                    "Model": ["AirPods Pro"],
+                    "Color": ["White"],
+                    "Connectivity": ["Bluetooth"],
+                },
+            ),
         ):
             # Step 1: create post → should build draft, not publish
             response = client.post(
