@@ -107,7 +107,8 @@ describe('PostList', () => {
     expect(screen.getByTestId('post-create-submit-loading')).toBeInTheDocument()
     expect(screen.getByTestId('post-create-submit')).toBeDisabled()
 
-    resolveCreate?.(created)
+    expect(resolveCreate).not.toBeNull()
+    resolveCreate!(created)
 
     await waitFor(() => {
       expect(screen.queryByTestId('post-create-submit-loading')).toBeNull()
