@@ -1,12 +1,16 @@
 /**
  * Live end-to-end test against real services.
  *
+ * Skipped unless PLAYWRIGHT_LIVE_E2E=1 is set — requires real GCS, Gemini,
+ * and eBay credentials plus locally running servers.
+ *
  * Requires:
  *   - UI running at http://localhost:5173  (make frontend-dev)
  *   - API running at http://localhost:8000  (make dev-server)
  *   - Real GCS, Gemini/ProductAnalyzer, and eBay credentials configured in the API
  *
  * Run with:
+ *   PLAYWRIGHT_LIVE_E2E=1 \
  *   PLAYWRIGHT_API_BASE=http://localhost:8000 \
  *   PLAYWRIGHT_WEB_PORT=5173 \
  *   npx playwright test e2e/posts.live.spec.ts --headed
@@ -32,6 +36,9 @@ test('uploads AirPods image and shows non-empty eBay draft (real services)', asy
   page,
   request,
 }) => {
+  if (!process.env.PLAYWRIGHT_LIVE_E2E) {
+    test.skip(true, 'set PLAYWRIGHT_LIVE_E2E=1 to run against real services')
+  }
   test.setTimeout(120_000)
   // Best-effort cleanup — real server may not have the reset endpoint.
   await request.post(`${PLAYWRIGHT_API_BASE}/__e2e__/reset-posts`, {
