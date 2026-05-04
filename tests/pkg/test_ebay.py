@@ -126,8 +126,10 @@ def test_requires_client_secret():
 
 def test_from_settings_creates_client():
     client = EbayClient.from_settings(_settings())
-    assert client._client_id == "test-app-id"
-    assert client._client_secret == "test-cert-id"
+    client_id = getattr(client, "_client_id", getattr(client, "client_id", None))
+    client_secret = getattr(client, "_client_secret", getattr(client, "client_secret", None))
+    assert client_id == "test-app-id"
+    assert client_secret == "test-cert-id"
     assert "test-cert-id" not in repr(client)
 
 

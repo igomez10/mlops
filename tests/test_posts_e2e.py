@@ -18,6 +18,7 @@ import json
 import os
 import uuid
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 from unittest.mock import MagicMock, patch
@@ -180,6 +181,15 @@ def _run_full_post_crud_over_http(
     assert by_id_final[id_c]["deleted_at"] is None
 
 
+def _assert_live_server_healthy(base: str) -> None:
+    try:
+        r = httpx.get(f"{base}/health", timeout=3.0)
+    except httpx.ConnectError:
+        pytest.skip(f"No server at {base} (start the app on localhost:8000)")
+    if r.status_code != 200:
+        pytest.skip(f"Server at {base} unhealthy: GET /health -> {r.status_code}")
+
+
 @pytest.fixture
 def e2e_client() -> TestClient:
     with TestClient(app) as test_client:
@@ -214,16 +224,84 @@ def test_e2e_posts_crud_with_mongo(mongo_container) -> None:
 def test_e2e_posts_crud_live_server() -> None:
     """Hit a real uvicorn process (e.g. ``make dev-server``). Skips if host is down."""
     base = os.environ.get("E2E_BASE_URL", "http://127.0.0.1:8000").rstrip("/")
-    try:
-        r = httpx.get(f"{base}/health", timeout=3.0)
-    except httpx.ConnectError:
-        pytest.skip(f"No server at {base} (start the app, e.g. make dev-server)")
-    if r.status_code != 200:
-        pytest.skip(f"Server at {base} unhealthy: GET /health -> {r.status_code}")
+    _assert_live_server_healthy(base)
 
     suffix = uuid.uuid4().hex[:12]
     with httpx.Client(base_url=base, timeout=30.0) as client:
         _run_full_post_crud_over_http(client, name_suffix=suffix, isolate=False)
+
+
+@pytest.mark.e2e
+@pytest.mark.live
+def test_e2e_live_server_upload_airpods_prefills_required_ebay_fields() -> None:
+    """Upload the AirPods fixture to localhost:8000 and verify draft fields are auto-prefilled."""
+    base = os.environ.get("E2E_BASE_URL", "http://127.0.0.1:8000").rstrip("/")
+    _assert_live_server_healthy(base)
+
+    image_path = Path("fixtures/airpods.jpg")
+    if not image_path.exists():
+        pytest.fail(f"missing test fixture: {image_path}")
+
+    suffix = uuid.uuid4().hex[:10]
+    description = f"Wireless earbuds with charging case {suffix}"
+    user_id = f"live-e2e-{suffix}"
+
+    with httpx.Client(base_url=base, timeout=90.0) as client:
+        response = client.post(
+            "/posts",
+            data={"description": description, "user_id": user_id},
+            files=[("files", (image_path.name, image_path.read_bytes(), "image/jpeg"))],
+        )
+        assert response.status_code == 201, response.text
+        created = response.json()
+
+        assert created["description"] == description
+        assert created["analysis"] is not None
+        assert str(created["analysis"].get("product_name") or "").strip()
+        assert str(created["analysis"].get("brand") or "").strip()
+        assert str(created["analysis"].get("model") or "").strip()
+        assert str((created["analysis"].get("price_estimate") or {}).get("currency") or "").strip()
+
+        draft = created["ebay_draft"]
+        assert draft is not None
+        assert draft["user_id"] == user_id
+        assert str(draft.get("category_id") or "").strip()
+        assert str(draft.get("title") or "").strip()
+        assert str(draft.get("description") or "").strip()
+        assert str(draft.get("condition") or "").strip()
+        assert float(draft["price"]) > 0
+        assert str(draft.get("currency") or "").strip()
+
+        item_specifics = draft.get("item_specifics") or {}
+        assert item_specifics.get("Brand", [""])[0].strip()
+        assert item_specifics.get("Model", [""])[0].strip()
+
+        # The description intentionally omits product-specific values like
+        # color/connectivity, so any blank placeholder here means the
+        # LLM-backed required-field prefill path did not complete its job.
+        blank_required_fields = {
+            key: values
+            for key, values in item_specifics.items()
+            if not (isinstance(values, list) and values and str(values[0]).strip())
+        }
+        assert not blank_required_fields, item_specifics
+        # Gemini must have contributed aspects beyond the trivially-known Brand/Model.
+        # If only Brand+Model are present, it means required aspect fetching or Gemini
+        # inference silently failed and missing aspects were never populated.
+        gemini_contributed = {k for k in item_specifics if k not in ("Brand", "Model")}
+        assert gemini_contributed, (
+            "expected Gemini to fill at least one required aspect beyond Brand/Model; "
+            f"got only: {list(item_specifics.keys())}"
+        )
+
+        fetched = client.get(f"/posts/{created['id']}")
+        assert fetched.status_code == 200, fetched.text
+        persisted = fetched.json()
+        assert persisted["analysis"] == created["analysis"]
+        assert persisted["ebay_draft"] == created["ebay_draft"]
+
+        delete_r = client.delete(f"/posts/{created['id']}")
+        assert delete_r.status_code == 200, delete_r.text
 
 
 # ---------------------------------------------------------------------------
@@ -281,6 +359,10 @@ class _FakeEbayClient:
     def get_offer(self, offer_id: str, user_token: str) -> dict:
         self.calls.append(("get_offer", offer_id))
         return {"offerId": offer_id, "listingId": "listing-456", "status": "PUBLISHED"}
+
+    def update_offer(self, offer_id: str, user_token: str, payload: dict) -> dict:
+        self.calls.append(("update_offer", offer_id, payload))
+        return {}
 
 
 def _seed_token(user_id: str) -> InMemoryEbayTokenRepository:
@@ -389,12 +471,20 @@ def test_e2e_post_create_user_123_publishes_ebay_listing(e2e_client: TestClient)
                 "create_offer",
                 "publish_offer",
                 "get_offer",
+                "update_offer",
             ]
 
             # Offer was created with the right category and SKU from the draft
             offer_payload = next(c[1] for c in fake_ebay.calls if c[0] == "create_offer")
             assert offer_payload["categoryId"] == "9355"
             assert offer_payload["sku"] == f"post-{body['id']}"
+
+            # update_offer back-links the post; the description contains the post URL
+            update_call = next(c for c in fake_ebay.calls if c[0] == "update_offer")
+            assert update_call[1] == "offer-456"
+            update_desc = update_call[2]["listingDescription"]
+            assert f"/posts/{body['id']}" in update_desc
+            assert update_desc.startswith(listing["description"])
     finally:
         app_state.pop("product_analyzer", None)
         app_state["images_storage"] = None

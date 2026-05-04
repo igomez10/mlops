@@ -1,6 +1,12 @@
 import { expect, test } from '@playwright/test'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 import { PLAYWRIGHT_API_BASE } from './ports'
+
+const frontendDir = path.dirname(fileURLToPath(import.meta.url))
+const repoRoot = path.join(frontendDir, '..', '..')
+const airpodsFixturePath = path.join(repoRoot, 'fixtures', 'airpods.jpg')
 
 test.beforeEach(async ({ request }) => {
   await request.post(`${PLAYWRIGHT_API_BASE}/__e2e__/reset-posts`, {
@@ -58,6 +64,50 @@ test.describe('posts UI', () => {
     await expect(page.getByTestId('posts-action-error')).toContainText(
       /image uploads not configured/,
     )
+  })
+
+  test('uploads the AirPods image and shows prefilled ebay draft fields', async ({
+    page,
+    request,
+  }) => {
+    const setup = await request.post(
+      `${PLAYWRIGHT_API_BASE}/__e2e__/configure-airpods-upload`,
+    )
+    if (!setup.ok()) {
+      throw new Error(`e2e setup failed: ${setup.status()} ${await setup.text()}`)
+    }
+
+    await page.goto('/')
+    await page.getByTestId('post-new-open').click()
+    await page
+      .getByTestId('post-create-description')
+      .fill('White Apple AirPods Pro Bluetooth earbuds')
+    await page.getByTestId('post-create-user-id').fill('user-123')
+    await page.getByTestId('post-create-image').setInputFiles(airpodsFixturePath)
+    await page.getByTestId('post-create-submit').click()
+
+    await expect(page.getByTestId('post-row')).toHaveCount(1)
+    const row = page
+      .getByTestId('post-row')
+      .filter({ hasText: 'White Apple AirPods Pro Bluetooth earbuds' })
+    await expect(row).toHaveCount(1)
+
+    const postId = await row.getAttribute('data-post-id')
+    if (!postId) {
+      throw new Error('expected data-post-id on uploaded post row')
+    }
+
+    await row.getByTestId('post-toggle-listings').click()
+    const panel = page
+      .locator(`[data-testid="post-listings-row"][data-post-id="${postId}"]`)
+      .getByTestId('post-listings-panel')
+    await expect(panel.getByTestId('post-ebay-draft')).toBeVisible()
+    await expect(panel.getByTestId('post-ebay-draft-spec-color')).toHaveValue(
+      'White',
+    )
+    await expect(
+      panel.getByTestId('post-ebay-draft-spec-connectivity'),
+    ).toHaveValue('Bluetooth')
   })
 
   test('updates a post from the row', async ({ page, request }) => {

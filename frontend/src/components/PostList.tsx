@@ -392,7 +392,14 @@ export function PostList() {
                   disabled={creating || !createDescription.trim() || !createImage}
                   data-testid="post-create-submit"
                 >
-                  {creating ? 'Uploading…' : 'Add to my items'}
+                  {creating ? (
+                    <span className="button-loading" data-testid="post-create-submit-loading">
+                      <span className="button-spinner" aria-hidden="true" />
+                      <span>Uploading…</span>
+                    </span>
+                  ) : (
+                    'Add to my items'
+                  )}
                 </button>
               </div>
             </div>

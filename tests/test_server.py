@@ -35,7 +35,12 @@ def test_health(client):
 def test_root(client):
     response = client.get("/")
     assert response.status_code == 200
-    assert response.json() == {"message": "Welcome to mlops fastapi!"}
+    # When the built UI is present (static/index.html), root serves HTML;
+    # otherwise it returns the JSON welcome message.
+    if response.headers.get("content-type", "").startswith("text/html"):
+        assert b"<html" in response.content
+    else:
+        assert response.json() == {"message": "Welcome to mlops fastapi!"}
 
 
 def test_usfca(client):
