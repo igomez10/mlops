@@ -289,6 +289,14 @@ def test_e2e_live_server_upload_airpods_prefills_required_ebay_fields() -> None:
             )
         }
         assert not blank_required_fields, item_specifics
+        # Gemini must have contributed aspects beyond the trivially-known Brand/Model.
+        # If only Brand+Model are present, it means required aspect fetching or Gemini
+        # inference silently failed and missing aspects were never populated.
+        gemini_contributed = {k for k in item_specifics if k not in ("Brand", "Model")}
+        assert gemini_contributed, (
+            "expected Gemini to fill at least one required aspect beyond Brand/Model; "
+            f"got only: {list(item_specifics.keys())}"
+        )
 
         fetched = client.get(f"/posts/{created['id']}")
         assert fetched.status_code == 200, fetched.text

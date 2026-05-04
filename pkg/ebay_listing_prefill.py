@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 from dataclasses import dataclass
 from typing import Any, Callable
+
+log = logging.getLogger(__name__)
 
 from pkg.config import CloudSettings
 from pkg.ebay import EbayClient
@@ -187,7 +190,8 @@ class EbayDraftPrefillService:
                 aspects=missing_aspects,
                 gemini_client=gemini_client,
             )
-        except Exception:
+        except Exception as exc:  # noqa: BLE001
+            log.warning("Gemini item-specifics inference failed: %s", exc)
             gemini_specifics = {
                 str(a.get("localizedAspectName") or ""): [""]
                 for a in missing_aspects
@@ -319,18 +323,25 @@ class EbayDraftPrefillService:
         text = raw.strip()
         if not text:
             return {}
-        candidates = [text]
+        # Prefer an explicit fenced code block when present.
         code_match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.DOTALL)
         if code_match:
-            candidates.insert(0, code_match.group(1))
-        json_match = re.search(r"\{.*\}", text, re.DOTALL)
-        if json_match:
-            candidates.insert(0, json_match.group(0))
-        for candidate in candidates:
             try:
-                data = json.loads(candidate)
+                data = json.loads(code_match.group(1))
+                if isinstance(data, dict):
+                    return data
+            except json.JSONDecodeError:
+                pass
+        # Scan from every `{` position so we find the first valid JSON object
+        # regardless of surrounding text or multiple brace pairs in the response.
+        decoder = json.JSONDecoder()
+        for i, ch in enumerate(text):
+            if ch != "{":
+                continue
+            try:
+                data, _ = decoder.raw_decode(text, i)
+                if isinstance(data, dict):
+                    return data
             except json.JSONDecodeError:
                 continue
-            if isinstance(data, dict):
-                return data
         return {}

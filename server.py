@@ -416,19 +416,11 @@ def _pick_condition(desired: str, valid_conditions: list[str]) -> str:
 def _resolve_ebay_category_id(
     analysis: dict[str, Any], fallback: str, *, client: EbayClient, marketplace_id: str
 ) -> str:
-    service = EbayDraftPrefillService(
-        settings=CloudSettings(
-            gcp_project_id=None,
-            gcs_bucket=None,
-            gcs_images_bucket=None,
-            firestore_database_id="(default)",
-            gemini_model="gemini-2.0-flash",
-            vertex_location="us-central1",
-            ebay_marketplace_id=marketplace_id,
-        ),
-        ebay_client=client,
-    )
-    return service._resolve_category_id(analysis, fallback)
+    query = str(analysis.get("product_name") or "").strip() or fallback
+    suggestions = client.get_category_suggestions(query, marketplace_id=marketplace_id)
+    if not suggestions:
+        raise RuntimeError(f"no eBay category suggestions returned for query {query!r}")
+    return suggestions[0].category_id
 
 
 def _build_public_image_urls(image_urls: list[str], *, public_base: str, images_bucket: str | None) -> list[str]:
