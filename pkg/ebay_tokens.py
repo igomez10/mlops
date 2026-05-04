@@ -90,5 +90,7 @@ class MongoEbayTokenRepository:
         if existing is None:
             self._coll.insert_one(doc)
             return token
-        self._coll.update_one({"user_id": token.user_id}, {"$set": doc})
+        update_doc = dict(doc)
+        update_doc.pop("_id", None)
+        self._coll.update_one({"user_id": token.user_id}, {"$set": update_doc})
         return token

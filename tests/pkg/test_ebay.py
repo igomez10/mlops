@@ -128,6 +128,13 @@ def test_from_settings_creates_client():
     client = EbayClient.from_settings(_settings())
     assert client._client_id == "test-app-id"
     assert client._client_secret == "test-cert-id"
+    assert "test-cert-id" not in repr(client)
+
+
+def test_client_close_closes_owned_http_client():
+    client = EbayClient("app-id", "cert-id")
+    client.close()
+    assert client._http.is_closed is True
 
 
 def test_ebay_client_uses_alternate_urls_when_not_production():
@@ -231,6 +238,20 @@ def test_expired_token_is_refreshed(monkeypatch):
 
     token_requests = [r for r in transport.requests if "oauth2/token" in str(r.url)]
     assert len(token_requests) == 2
+
+
+def test_token_refresh_buffer_does_not_immediately_expire_short_lived_tokens():
+    client, _ = _make_client(
+        [
+            _json_response(_token_response(expires_in=30)),
+            _json_response(_search_response()),
+        ]
+    )
+    before = time.monotonic()
+    client.search_items("a")
+
+    assert client._token_cache is not None
+    assert client._token_cache.expires_at > before
 
 
 def test_token_forwarded_as_bearer_in_search():

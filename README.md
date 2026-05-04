@@ -107,6 +107,10 @@ make tf-plan    # preview changes
 make tf-apply   # apply changes
 ```
 
+Before deploying Cloud Run revisions that read from Secret Manager, create at least
+one version for each required secret. This stack expects versions for
+`fastapi-ebay-app-id`, `fastapi-ebay-cert-id`, and `fastapi-ebay-runame`.
+
 ### Resources
 
 | Resource | Name |

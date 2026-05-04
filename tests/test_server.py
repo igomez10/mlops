@@ -11,6 +11,7 @@ from pkg.ebay import SELL_ACCOUNT_SCOPE, SELL_INVENTORY_SCOPE
 from server import (
     CreatePostsRequest,
     _make_ebay_state,
+    _parse_ebay_state,
     _pick_condition,
     _resolve_ebay_category_id,
     _resolve_posts_backend,
@@ -208,6 +209,19 @@ def test_ebay_callback_rejects_invalid_state(monkeypatch):
         assert response.json()["detail"] == "invalid ebay state"
 
 
+def test_ebay_state_round_trips_user_ids_with_colons(monkeypatch):
+    monkeypatch.setenv("EBAY_RUNAME", "test-runame")
+    monkeypatch.setenv("EBAY_APP_ID", "test-app-id")
+    monkeypatch.setenv("EBAY_CERT_ID", "test-cert-id")
+    with TestClient(app):
+        settings = app_state["cloud_settings"]
+        state = _make_ebay_state("user:segment:123", settings)
+
+        assert isinstance(state, str)
+        assert state.count(".") == 1
+        assert _parse_ebay_state(state, settings) == "user:segment:123"
+
+
 def test_ebay_listings_returns_aggregated_offers(monkeypatch):
     class _FakeEbayClient:
         def get_inventory_items(self, access_token: str, *, limit: int = 200, offset: int = 0):
@@ -387,6 +401,17 @@ def test_ebay_rejected_page_shows_simple_message(client):
     assert response.status_code == 200
     assert "eBay authorization rejected" in response.text
     assert "User declined access" in response.text
+
+
+def test_ebay_rejected_page_escapes_message(client):
+    response = client.get(
+        "/auth/ebay/rejected",
+        params={"error_description": "<script>alert(1)</script>"},
+    )
+
+    assert response.status_code == 200
+    assert "<script>alert(1)</script>" not in response.text
+    assert "&lt;script&gt;alert(1)&lt;/script&gt;" in response.text
 
 
 # ---------------------------------------------------------------------------

@@ -117,14 +117,15 @@ def test_sandbox_search_offset(client):
 
 
 @pytest.mark.sandbox
-def test_sandbox_search_empty_query_returns_response(client):
-    # eBay may return results or an error for an empty query; we just assert no crash
+def test_sandbox_search_unlikely_query_returns_response(client):
+    # eBay may return no results or a client error for an unlikely query.
     try:
         result = client.search_items("zzz-unlikely-query-xqz", limit=1)
+        assert isinstance(result, SearchResult)
         assert result.total >= 0
-    except Exception as exc:
-        # A 4xx from eBay for a bad query is also acceptable — just not a crash
-        assert "4" in str(exc) or "Client" in type(exc).__name__
+    except httpx.HTTPStatusError as exc:
+        assert exc.response is not None
+        assert 400 <= exc.response.status_code < 500
 
 
 # ---------------------------------------------------------------------------

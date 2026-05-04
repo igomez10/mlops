@@ -1,13 +1,11 @@
 from __future__ import annotations
 
+import base64
 import hashlib
 import hmac
+import html
 import json
 import logging
-
-# import io
-# import torch
-# import requests
 import mimetypes
 import os
 import re
@@ -103,6 +101,9 @@ def _seed_posts(repo: "InMemoryPostRepository") -> None:
 async def lifespan(app: fastapi.FastAPI):
     settings = CloudSettings.from_env()
     app_state["cloud_settings"] = settings
+    app_state["ebay_client"] = (
+        EbayClient.from_settings(settings) if settings.ebay_app_id and settings.ebay_cert_id else None
+    )
     backend = _resolve_posts_backend(settings)
     if backend == "mongodb":
         if not settings.mongodb_uri:
@@ -131,7 +132,10 @@ async def lifespan(app: fastapi.FastAPI):
     app_state["product_analyzer"] = ProductAnalyzer()
     yield
     mongo = app_state.pop("mongo_client", None)
+    ebay_client = app_state.pop("ebay_client", None)
     app_state.clear()
+    if isinstance(ebay_client, EbayClient):
+        ebay_client.close()
     if mongo is not None:
         mongo.close()
 
@@ -162,6 +166,9 @@ def get_images_storage() -> GoogleCloudStorage | None:
 
 
 def _get_ebay_client(settings: CloudSettings) -> EbayClient:
+    client = app_state.get("ebay_client")
+    if isinstance(client, EbayClient):
+        return client
     return EbayClient.from_settings(settings)
 
 
@@ -172,29 +179,37 @@ def _ebay_state_secret(settings: CloudSettings) -> str:
 
 
 def _make_ebay_state(user_id: str, settings: CloudSettings) -> str:
-    nonce = uuid.uuid4().hex
-    payload = f"{user_id}:{nonce}"
+    payload = {
+        "user_id": user_id,
+        "nonce": uuid.uuid4().hex,
+    }
+    encoded_payload = base64.urlsafe_b64encode(json.dumps(payload, separators=(",", ":")).encode()).decode().rstrip("=")
     signature = hmac.new(
         _ebay_state_secret(settings).encode(),
-        payload.encode(),
+        encoded_payload.encode(),
         hashlib.sha256,
     ).hexdigest()
-    return f"{payload}:{signature}"
+    return f"{encoded_payload}.{signature}"
 
 
 def _parse_ebay_state(state: str, settings: CloudSettings) -> str:
     try:
-        user_id, nonce, signature = state.split(":", 2)
+        encoded_payload, signature = state.rsplit(".", 1)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail="invalid ebay state") from exc
-    payload = f"{user_id}:{nonce}"
+    padding = "=" * (-len(encoded_payload) % 4)
     expected = hmac.new(
         _ebay_state_secret(settings).encode(),
-        payload.encode(),
+        encoded_payload.encode(),
         hashlib.sha256,
     ).hexdigest()
     if not hmac.compare_digest(signature, expected):
         raise HTTPException(status_code=400, detail="invalid ebay state")
+    try:
+        payload = json.loads(base64.urlsafe_b64decode(f"{encoded_payload}{padding}"))
+        user_id = str(payload["user_id"])
+    except (KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
+        raise HTTPException(status_code=400, detail="invalid ebay state") from exc
     return user_id
 
 
@@ -706,7 +721,7 @@ def _publish_ebay_from_draft(
 
 app = fastapi.FastAPI(lifespan=lifespan)
 
-_default_cors = "*"
+_default_cors = "http://localhost:5173,http://127.0.0.1:5173,http://localhost:5174,http://127.0.0.1:5174,http://localhost:8000,http://127.0.0.1:8000"
 _cors_origins = [o.strip() for o in os.environ.get("CORS_ORIGINS", _default_cors).split(",") if o.strip()]
 _allow_all_origins = _cors_origins == ["*"]
 app.add_middleware(
@@ -898,7 +913,7 @@ def ebay_authorization_rejected(
         "ebay authorization rejected callback",
         extra={"error": error, "error_description": error_description, "state_present": bool(state)},
     )
-    message = error_description or error or "The authorization request was rejected."
+    message = html.escape(error_description or error or "The authorization request was rejected.")
     return HTMLResponse(f"<html><body><h1>eBay authorization rejected</h1><p>{message}</p></body></html>")
 
 

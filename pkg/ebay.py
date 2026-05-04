@@ -122,10 +122,11 @@ class EbayClient:
     Inject `http_client` in tests to avoid real network calls.
     """
 
-    _client_id: str
-    _client_secret: str
+    _client_id: str = field(repr=False, compare=False)
+    _client_secret: str = field(repr=False, compare=False)
     _marketplace_id: str
-    _http: httpx.Client
+    _http: httpx.Client = field(repr=False, compare=False)
+    _owns_http: bool = field(default=False, repr=False, compare=False)
     _token_cache: _TokenCache | None = field(default=None, repr=False)
 
     def __init__(
@@ -152,6 +153,7 @@ class EbayClient:
         self._account_base = _ACCOUNT_BASE_SBX if sandbox else _ACCOUNT_BASE_PROD
         self._taxonomy_base = _TAXONOMY_BASE_SBX if sandbox else _TAXONOMY_BASE_PROD
         self._metadata_base = _METADATA_BASE_SBX if sandbox else _METADATA_BASE_PROD
+        self._owns_http = http_client is None
         self._http = http_client or httpx.Client(timeout=10)
         self._token_cache: _TokenCache | None = None
 
@@ -186,10 +188,12 @@ class EbayClient:
         body = response.json()
         token = body["access_token"]
         expires_in = int(body.get("expires_in", 7200))
-        # Refresh 60 s early to avoid edge-case expiry during a request.
+        # Refresh slightly early, but never so early that short-lived tokens
+        # are considered expired immediately.
+        refresh_buffer = min(60.0, max(0.0, expires_in * 0.1))
         self._token_cache = _TokenCache(
             access_token=token,
-            expires_at=time.monotonic() + expires_in - 60,
+            expires_at=time.monotonic() + expires_in - refresh_buffer,
         )
         return token
 
@@ -233,6 +237,16 @@ class EbayClient:
                     response=exc.response,
                 ) from exc
             raise
+
+    def close(self) -> None:
+        if self._owns_http:
+            self._http.close()
+
+    def __enter__(self) -> EbayClient:
+        return self
+
+    def __exit__(self, exc_type: object, exc: object, tb: object) -> None:
+        self.close()
 
     # ------------------------------------------------------------------
     # Public API
