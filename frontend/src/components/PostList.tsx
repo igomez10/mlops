@@ -470,7 +470,26 @@ export function PostList() {
                             data-testid="post-edit-name"
                           />
                         ) : (
-                          postLabel(p)
+                          <div className="post-name-cell">
+                            <span>{postLabel(p)}</span>
+                            {analysis ? (
+                              <span
+                                className="post-analysis-badge"
+                                data-testid="post-analysis-badge"
+                                title={[
+                                  analysis.brand,
+                                  analysis.product_name,
+                                  analysis.model,
+                                ].filter(Boolean).join(' · ')}
+                              >
+                                {[
+                                  analysis.brand,
+                                  analysis.product_name,
+                                  analysis.model,
+                                ].filter(Boolean).join(' · ')}
+                              </span>
+                            ) : null}
+                          </div>
                         )}
                       </td>
                       <td

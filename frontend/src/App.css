@@ -542,6 +542,27 @@ tr.post-listings-row > td {
   margin-bottom: 0.25rem;
 }
 
+.post-name-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.post-analysis-badge {
+  display: inline-block;
+  font-size: 0.72rem;
+  font-weight: 500;
+  color: var(--color-accent-ink);
+  background: var(--color-accent-soft);
+  border: 1px solid var(--color-accent-mid);
+  border-radius: var(--radius-pill);
+  padding: 0.1rem 0.55rem;
+  max-width: 22ch;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .post-analysis-block {
   padding: 0.25rem 0 0.5rem;
   border-bottom: 1px solid var(--color-border);
