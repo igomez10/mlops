@@ -15,6 +15,11 @@ import {
 } from '../api/client'
 import type { EbayDraft, Post } from '../types/post'
 
+type DraftValidationField = {
+  key: string
+  label: string
+}
+
 /** ISO instant → e.g. "10 minutes ago" (uses browser locale). */
 function formatRelativeWhen(iso: string, at: Date): string {
   const d = new Date(iso)
@@ -94,6 +99,36 @@ function postLabel(p: Post) {
   return p.name
 }
 
+function isBlank(value: string | null | undefined): boolean {
+  return !value || !value.trim()
+}
+
+function missingDraftFields(draft: Partial<EbayDraft>): DraftValidationField[] {
+  const missing: DraftValidationField[] = []
+
+  if (isBlank(draft.title)) {
+    missing.push({ key: 'title', label: 'Title' })
+  }
+  if (isBlank(draft.condition)) {
+    missing.push({ key: 'condition', label: 'Condition' })
+  }
+  if (!Number.isFinite(draft.price) || Number(draft.price) <= 0) {
+    missing.push({ key: 'price', label: 'Price' })
+  }
+
+  for (const [name, values] of Object.entries(draft.item_specifics ?? {})) {
+    const first = values[0] ?? ''
+    if (isBlank(first)) {
+      missing.push({
+        key: `item_specifics:${name}`,
+        label: name,
+      })
+    }
+  }
+
+  return missing
+}
+
 export function PostList() {
   const titleId = useId()
   const [now, setNow] = useState(() => new Date())
@@ -118,6 +153,9 @@ export function PostList() {
   >({})
   const [savingDraftId, setSavingDraftId] = useState<string | null>(null)
   const [publishingId, setPublishingId] = useState<string | null>(null)
+  const [publishAttemptedIds, setPublishAttemptedIds] = useState<Set<string>>(
+    () => new Set(),
+  )
 
   const loadPosts = useCallback(async () => {
     setLoadError(null)
@@ -267,6 +305,11 @@ export function PostList() {
         delete n[p.id]
         return n
       })
+      setPublishAttemptedIds((prev) => {
+        const n = new Set(prev)
+        n.delete(p.id)
+        return n
+      })
     } catch (err: unknown) {
       setActionError(err instanceof Error ? err.message : 'Save draft failed')
     } finally {
@@ -275,11 +318,23 @@ export function PostList() {
   }
 
   async function handlePublish(p: Post) {
+    const draft = getDraftEdit(p) as Partial<EbayDraft>
+    const missing = missingDraftFields(draft)
+    setPublishAttemptedIds((prev) => new Set(prev).add(p.id))
+    if (missing.length > 0) {
+      setActionError(null)
+      return
+    }
     setActionError(null)
     setPublishingId(p.id)
     try {
       const updated = await publishEbayListing(p.id)
       setPosts((prev) => prev?.map((x) => (x.id === p.id ? updated : x)) ?? prev)
+      setPublishAttemptedIds((prev) => {
+        const n = new Set(prev)
+        n.delete(p.id)
+        return n
+      })
     } catch (err: unknown) {
       setActionError(err instanceof Error ? err.message : 'Publish failed')
     } finally {
@@ -702,6 +757,17 @@ export function PostList() {
                               const isPublishing = publishingId === p.id
                               const hasEdits = !!draftEdits[p.id]
                               const specifics = edit.item_specifics ?? draft.item_specifics ?? {}
+                              const effectiveDraft: Partial<EbayDraft> = {
+                                ...draft,
+                                ...edit,
+                                item_specifics: specifics,
+                              }
+                              const missingFields = missingDraftFields(effectiveDraft)
+                              const showMissingFields =
+                                publishAttemptedIds.has(p.id) && missingFields.length > 0
+                              const missingFieldKeys = new Set(
+                                missingFields.map((field) => field.key),
+                              )
                               return (
                                 <div className="post-ebay-draft-block" data-testid="post-ebay-draft">
                                   <div className="post-section-heading-row">
@@ -724,32 +790,67 @@ export function PostList() {
                                         disabled={isSaving || isPublishing || hasEdits}
                                         data-testid="post-ebay-draft-publish"
                                       >
-                                        {isPublishing ? 'Publishing…' : 'Publish on eBay'}
+                                        {isPublishing ? (
+                                          <span
+                                            className="button-loading"
+                                            data-testid="post-ebay-draft-publish-loading"
+                                          >
+                                            <span className="button-spinner" aria-hidden="true" />
+                                            <span>Publishing…</span>
+                                          </span>
+                                        ) : (
+                                          'Publish on eBay'
+                                        )}
                                       </button>
                                     </div>
                                   </div>
+                                  {showMissingFields ? (
+                                    <p
+                                      className="post-ebay-draft-validation"
+                                      role="alert"
+                                      data-testid="post-ebay-draft-validation"
+                                    >
+                                      Missing required fields:{' '}
+                                      {missingFields.map((field) => field.label).join(', ')}
+                                    </p>
+                                  ) : null}
                                   <div className="post-ebay-draft-grid">
-                                    <label className="post-ebay-draft-label" htmlFor={`draft-title-${p.id}`}>Title</label>
+                                    <label
+                                      className={`post-ebay-draft-label${missingFieldKeys.has('title') ? ' post-ebay-draft-label-error' : ''}`}
+                                      htmlFor={`draft-title-${p.id}`}
+                                    >
+                                      Title
+                                    </label>
                                     <input
                                       id={`draft-title-${p.id}`}
                                       type="text"
-                                      className="post-ebay-draft-input"
+                                      className={`post-ebay-draft-input${missingFieldKeys.has('title') ? ' post-ebay-draft-input-error' : ''}`}
                                       value={edit.title ?? draft.title}
                                       onChange={(e) => setDraftField(p.id, draft, 'title', e.target.value)}
                                       disabled={isSaving || isPublishing}
+                                      aria-invalid={missingFieldKeys.has('title')}
                                       data-testid="post-ebay-draft-title"
                                     />
-                                    <label className="post-ebay-draft-label" htmlFor={`draft-condition-${p.id}`}>Condition</label>
+                                    <label
+                                      className={`post-ebay-draft-label${missingFieldKeys.has('condition') ? ' post-ebay-draft-label-error' : ''}`}
+                                      htmlFor={`draft-condition-${p.id}`}
+                                    >
+                                      Condition
+                                    </label>
                                     <input
                                       id={`draft-condition-${p.id}`}
                                       type="text"
-                                      className="post-ebay-draft-input"
+                                      className={`post-ebay-draft-input${missingFieldKeys.has('condition') ? ' post-ebay-draft-input-error' : ''}`}
                                       value={edit.condition ?? draft.condition}
                                       onChange={(e) => setDraftField(p.id, draft, 'condition', e.target.value)}
                                       disabled={isSaving || isPublishing}
+                                      aria-invalid={missingFieldKeys.has('condition')}
                                       data-testid="post-ebay-draft-condition"
                                     />
-                                    <label className="post-ebay-draft-label" htmlFor={`draft-price-${p.id}`}>
+                                    <label
+                                      className={`post-ebay-draft-label${missingFieldKeys.has('price') ? ' post-ebay-draft-label-error' : ''}`}
+                                      htmlFor={`draft-price-${p.id}`}
+                                    >
                                       Price ({edit.currency ?? draft.currency})
                                     </label>
                                     <input
@@ -757,24 +858,29 @@ export function PostList() {
                                       type="number"
                                       min="0"
                                       step="0.01"
-                                      className="post-ebay-draft-input"
+                                      className={`post-ebay-draft-input${missingFieldKeys.has('price') ? ' post-ebay-draft-input-error' : ''}`}
                                       value={edit.price ?? draft.price}
                                       onChange={(e) => setDraftField(p.id, draft, 'price', parseFloat(e.target.value) || 0)}
                                       disabled={isSaving || isPublishing}
+                                      aria-invalid={missingFieldKeys.has('price')}
                                       data-testid="post-ebay-draft-price"
                                     />
                                     {Object.entries(specifics).map(([name, vals]) => (
                                       <Fragment key={name}>
-                                        <label className="post-ebay-draft-label" htmlFor={`draft-spec-${p.id}-${name}`}>
+                                        <label
+                                          className={`post-ebay-draft-label${missingFieldKeys.has(`item_specifics:${name}`) ? ' post-ebay-draft-label-error' : ''}`}
+                                          htmlFor={`draft-spec-${p.id}-${name}`}
+                                        >
                                           {name}
                                         </label>
                                         <input
                                           id={`draft-spec-${p.id}-${name}`}
                                           type="text"
-                                          className="post-ebay-draft-input"
+                                          className={`post-ebay-draft-input${missingFieldKeys.has(`item_specifics:${name}`) ? ' post-ebay-draft-input-error' : ''}`}
                                           value={vals[0] ?? ''}
                                           onChange={(e) => setItemSpecific(p.id, draft, name, e.target.value)}
                                           disabled={isSaving || isPublishing}
+                                          aria-invalid={missingFieldKeys.has(`item_specifics:${name}`)}
                                           data-testid={`post-ebay-draft-spec-${name.toLowerCase().replace(/\s+/g, '-')}`}
                                         />
                                       </Fragment>

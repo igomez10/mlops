@@ -27,7 +27,7 @@ FASTAPI_IMAGE := $(GCP_REGION)-docker.pkg.dev/$(GCP_PROJECT)/fastapi/fastapi:lat
 FASTAPI_DEV_IMAGE := $(GCP_REGION)-docker.pkg.dev/$(GCP_PROJECT)/fastapi/fastapi-ignacio:latest
 MLFLOW_VERSION := v3.10.1-full
 
-.PHONY: build run stop clean tf-plan tf-apply gcp-build-app push-mlflow push-fastapi push-fastapi-dev redeploy-mlflow redeploy-fastapi redeploy-fastapi-dev deploy-fastapi-local deploy-fastapi-dev-local run-fastapi run-fastapi-firestore compose-up-dev dev-server dev-server-mongo start-docker-compose frontend-install frontend-dev ui frontend-e2e lint test clear-posts clear-posts-firestore completion-zsh vertex-upload-toy-model vertex-deploy-toy-model vertex-undeploy-toy-model
+.PHONY: build run stop clean tf-plan tf-apply gcp-build-app push-mlflow push-fastapi push-fastapi-dev redeploy-mlflow redeploy-fastapi redeploy-fastapi-dev deploy-fastapi-local deploy-fastapi-dev-local run-fastapi run-fastapi-firestore compose-up-dev dev-server dev-server-mongo start-docker-compose frontend-install frontend-dev ui frontend-test frontend-e2e lint test clear-posts clear-posts-firestore completion-zsh vertex-upload-toy-model vertex-deploy-toy-model vertex-undeploy-toy-model
 
 build-fastapi:
 	docker build -t $(FASTAPI_IMAGE) -f Dockerfile.fastapi .
@@ -155,14 +155,17 @@ frontend-dev:
 # React UI (Vite dev server; use with API e.g. make dev-server on :8000).
 ui: frontend-dev
 
+frontend-test:
+	cd frontend && npm test
+
 # Playwright starts API (in-memory Mongo) + Vite on ports 9876 / 5174 (see frontend/e2e/ports.ts).
 frontend-e2e:
 	cd frontend && CI=1 npm run test:e2e
 
-test:
+test: frontend-test frontend-e2e
 	$(LOAD_DOTENV) \
 	GOOGLE_CLOUD_PROJECT=$(GCP_PROJECT) \
-	uv run pytest tests/ -q -k "not live and not sandbox"
+	uv run pytest tests/ -q -m "not live and not sandbox"
 
 clear-posts:
 	mongosh $(DEV_MONGODB_URL)/mlops --eval 'db.posts.deleteMany({})'

@@ -10,6 +10,8 @@ vi.mock('../api/client', () => ({
   fetchPosts: vi.fn(),
   createPostWithImage: vi.fn(),
   updatePost: vi.fn(),
+  updateEbayDraft: vi.fn(),
+  publishEbayListing: vi.fn(),
 }))
 
 function post(partial: Pick<Post, 'id' | 'name'> & Partial<Post>): Post {
@@ -30,6 +32,8 @@ describe('PostList', () => {
     vi.mocked(client.fetchPosts).mockReset()
     vi.mocked(client.createPostWithImage).mockReset()
     vi.mocked(client.updatePost).mockReset()
+    vi.mocked(client.updateEbayDraft).mockReset()
+    vi.mocked(client.publishEbayListing).mockReset()
     vi.mocked(client.fetchPosts).mockResolvedValue([])
   })
 
@@ -222,5 +226,119 @@ describe('PostList', () => {
       'href',
       'https://www.ebay.com/itm/L1',
     )
+  })
+
+  it('blocks publish when required eBay draft fields are missing and highlights them', async () => {
+    const user = userEvent.setup()
+    const p = post({
+      id: 'p-draft-missing',
+      name: 'airpods',
+      description: 'AirPods',
+      ebay_draft: {
+        user_id: 'user-1',
+        category_id: '9355',
+        title: '',
+        description: 'Generated description',
+        condition: '',
+        price: 0,
+        currency: 'USD',
+        item_specifics: {
+          Brand: ['Apple'],
+          Color: [''],
+        },
+      },
+    })
+    vi.mocked(client.fetchPosts).mockResolvedValue([p])
+
+    render(<PostList />)
+    await waitFor(() => screen.getByTestId('posts-table'))
+
+    await user.click(screen.getByTestId('post-toggle-listings'))
+    await user.click(screen.getByTestId('post-ebay-draft-publish'))
+
+    expect(client.publishEbayListing).not.toHaveBeenCalled()
+    expect(screen.getByTestId('post-ebay-draft-validation')).toHaveTextContent(
+      'Missing required fields: Title, Condition, Price, Color',
+    )
+    expect(screen.getByTestId('post-ebay-draft-title')).toHaveAttribute(
+      'aria-invalid',
+      'true',
+    )
+    expect(screen.getByTestId('post-ebay-draft-condition')).toHaveAttribute(
+      'aria-invalid',
+      'true',
+    )
+    expect(screen.getByTestId('post-ebay-draft-price')).toHaveAttribute(
+      'aria-invalid',
+      'true',
+    )
+    expect(
+      screen.getByTestId('post-ebay-draft-spec-color'),
+    ).toHaveAttribute('aria-invalid', 'true')
+  })
+
+  it('shows a spinner while publishing a valid eBay draft', async () => {
+    const user = userEvent.setup()
+    let resolvePublish: ((value: Post) => void) | null = null
+    const before = post({
+      id: 'p-draft-publish',
+      name: 'airpods',
+      description: 'AirPods',
+      ebay_draft: {
+        user_id: 'user-1',
+        category_id: '9355',
+        title: 'Apple AirPods Pro',
+        description: 'Generated description',
+        condition: 'USED_GOOD',
+        price: 149.99,
+        currency: 'USD',
+        item_specifics: {
+          Brand: ['Apple'],
+          Color: ['White'],
+        },
+      },
+    })
+    const after = post({
+      ...before,
+      listings: [
+        {
+          id: 'listing-1',
+          marketplace_url: 'https://www.ebay.com/itm/listing-1',
+          image_url: '',
+          created_at: '2024-01-15T10:00:00.000Z',
+          status: 'PUBLISHED',
+          description: 'Apple AirPods Pro',
+        },
+      ],
+      ebay_draft: null,
+    })
+    vi.mocked(client.fetchPosts).mockResolvedValue([before])
+    vi.mocked(client.publishEbayListing).mockImplementation(
+      () =>
+        new Promise<Post>((resolve) => {
+          resolvePublish = resolve
+        }),
+    )
+
+    render(<PostList />)
+    await waitFor(() => screen.getByTestId('posts-table'))
+
+    await user.click(screen.getByTestId('post-toggle-listings'))
+    await user.click(screen.getByTestId('post-ebay-draft-publish'))
+
+    expect(client.publishEbayListing).toHaveBeenCalledWith('p-draft-publish')
+    expect(
+      screen.getByTestId('post-ebay-draft-publish-loading'),
+    ).toBeInTheDocument()
+    expect(screen.getByTestId('post-ebay-draft-publish')).toBeDisabled()
+
+    expect(resolvePublish).not.toBeNull()
+    resolvePublish!(after)
+
+    await waitFor(() => {
+      expect(
+        screen.queryByTestId('post-ebay-draft-publish-loading'),
+      ).toBeNull()
+    })
   })
 })
