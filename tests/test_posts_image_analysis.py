@@ -361,9 +361,7 @@ def test_post_create_uploads_airpods_and_publishes_ebay_listing_end_to_end(
             assert body["analysis"]["product_name"] == "Apple AirPods Pro"
 
             # Draft was created, no published eBay listing yet
-            assert not any(
-                "ebay.com" in (lst.get("marketplace_url") or "") for lst in body["listings"]
-            )
+            assert not any("ebay.com" in (lst.get("marketplace_url") or "") for lst in body["listings"])
             assert body["ebay_draft"] is not None
             assert body["ebay_draft"]["category_id"] == "9355"
 
@@ -406,7 +404,9 @@ def test_post_create_uploads_airpods_and_publishes_ebay_listing_end_to_end(
                 "publish_offer",
                 "get_offer",
             ]
-            inventory_payload = [call for call in fake_client.calls if call[0] == "create_or_replace_inventory_item"][0][3]
+            inventory_payload = [call for call in fake_client.calls if call[0] == "create_or_replace_inventory_item"][
+                0
+            ][3]
             assert inventory_payload["product"]["brand"] == "Apple"
             assert inventory_payload["product"]["mpn"] == "AirPods Pro"
             assert inventory_payload["product"]["imageUrls"][0].startswith("http://testserver/images/posts/")

@@ -340,9 +340,7 @@ def test_e2e_post_create_user_123_publishes_ebay_listing(e2e_client: TestClient)
             assert body["analysis"]["brand"] == "Apple"
 
             # Draft was built — no published eBay listing yet (only synthetic draft listings)
-            assert not any(
-                "ebay.com" in (lst.get("marketplace_url") or "") for lst in body["listings"]
-            )
+            assert not any("ebay.com" in (lst.get("marketplace_url") or "") for lst in body["listings"])
             assert body["ebay_draft"] is not None
             draft = body["ebay_draft"]
             assert draft["user_id"] == "123"

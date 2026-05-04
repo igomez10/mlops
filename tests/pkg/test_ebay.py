@@ -943,7 +943,11 @@ def test_get_valid_conditions_returns_condition_enums():
                 "categoryId": "9355",
                 "itemConditions": [
                     {"conditionDescription": "New", "conditionEnum": "NEW", "conditionId": "1000"},
-                    {"conditionDescription": "Used - Excellent", "conditionEnum": "USED_EXCELLENT", "conditionId": "3000"},
+                    {
+                        "conditionDescription": "Used - Excellent",
+                        "conditionEnum": "USED_EXCELLENT",
+                        "conditionId": "3000",
+                    },
                     {"conditionDescription": "Used - Good", "conditionEnum": "USED_GOOD", "conditionId": "4000"},
                 ],
             }

@@ -43,8 +43,8 @@ from pkg import (
 )
 from pkg.ebay import DEFAULT_USER_SCOPES, EbayClient
 from pkg.gcs import api_absolute_url_for_object_key, normalize_stored_to_object_key  # noqa: E402
-from pkg.posts import InMemoryPostRepository, Listing, MongoPostRepository, Post, PostRepository  # noqa: E402
 from pkg.gemini import GeminiClient
+from pkg.posts import InMemoryPostRepository, Listing, MongoPostRepository, Post, PostRepository  # noqa: E402
 from product_analyzer import ProductAnalyzer  # noqa: E402
 
 # from PIL import Image
@@ -449,7 +449,7 @@ def _pick_condition(desired: str, valid_conditions: list[str]) -> str:
     except ValueError:
         return valid_conditions[0]
     # Try upgrading (better condition) first, then downgrading as last resort.
-    for cond in _CONDITION_UPGRADE_ORDER[idx + 1:]:
+    for cond in _CONDITION_UPGRADE_ORDER[idx + 1 :]:
         if cond in valid:
             return cond
     for cond in reversed(_CONDITION_UPGRADE_ORDER[:idx]):
@@ -487,9 +487,7 @@ def _suggest_item_specifics(
         if not name:
             continue
         allowed = [
-            str(v.get("localizedValue") or "")
-            for v in (aspect.get("aspectValues") or [])
-            if v.get("localizedValue")
+            str(v.get("localizedValue") or "") for v in (aspect.get("aspectValues") or []) if v.get("localizedValue")
         ]
         names_with_values.append((name, allowed[:15]))
 
@@ -509,14 +507,13 @@ def _suggest_item_specifics(
         if v
     )
     aspects_spec = "\n".join(
-        f'- "{name}": {("allowed: " + ", ".join(vals)) if vals else "(any string)"}'
-        for name, vals in names_with_values
+        f'- "{name}": {("allowed: " + ", ".join(vals)) if vals else "(any string)"}' for name, vals in names_with_values
     )
     prompt = (
         "You are filling out required eBay item specifics for a product listing.\n\n"
         f"Product information:\n{product_info}\n\n"
         f"Required aspects:\n{aspects_spec}\n\n"
-        'Return ONLY a valid JSON object. Keys are the exact aspect names above. '
+        "Return ONLY a valid JSON object. Keys are the exact aspect names above. "
         'Each value is a single-element array with the best matching string, or [""] '
         "if you cannot determine it. Example: "
         '{"Brand": ["Apple"], "Color": ["White"], "Connectivity": ["Bluetooth"]}\n\nJSON:"'
@@ -575,11 +572,7 @@ def _build_ebay_draft(
         log.warning("gemini aspect suggestion failed: %s", exc)
         item_specifics = {
             **base_specifics,
-            **{
-                str(a.get("localizedAspectName") or ""): [""]
-                for a in required_aspects
-                if a.get("localizedAspectName")
-            },
+            **{str(a.get("localizedAspectName") or ""): [""] for a in required_aspects if a.get("localizedAspectName")},
         }
 
     return {
