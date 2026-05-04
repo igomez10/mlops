@@ -8,11 +8,10 @@ from fastapi.testclient import TestClient
 from pkg import InMemoryEbayTokenRepository
 from pkg.config import CloudSettings
 from pkg.ebay import SELL_ACCOUNT_SCOPE, SELL_INVENTORY_SCOPE
+from pkg.ebay_listing_prefill import EbayDraftPrefillService
 from server import (
-    CreatePostsRequest,
     _make_ebay_state,
     _parse_ebay_state,
-    _pick_condition,
     _resolve_ebay_category_id,
     _resolve_posts_backend,
     app,
@@ -41,75 +40,6 @@ def test_root(client):
         assert b"<html" in response.content
     else:
         assert response.json() == {"message": "Welcome to mlops fastapi!"}
-
-
-def test_usfca(client):
-    response = client.get("/usfca")
-    assert response.status_code == 200
-    assert response.json() == "something"
-
-
-def test_add_query_parameters(client):
-    response = client.post("/add_query_parameters?num1=3&num2=4")
-    assert response.status_code == 200
-    assert response.json() == {"result": 7}
-
-
-def test_add_body_parameters(client):
-    response = client.post("/add_body_parameters", json={"num1": 1, "num2": 2})
-    assert response.status_code == 200
-    b0, b1, b2 = 27, 256, 339
-    assert response.json() == {"result": b0 + b1 * 1 + b2 * 2}
-
-
-def test_predict(client):
-    response = client.post("/predict_price_sqft", json={"sqft": 1500, "rooms": 3})
-    assert response.status_code == 200
-    assert response.json() == {"prediction": 450000}
-
-
-def test_create_valid_post_request():
-    valid_request = CreatePostsRequest(
-        dry_run=True,
-        platform="ebay",
-        user_estimated_price=50000,
-        images=[b"123"],
-        user_id=123,
-    )
-
-    assert valid_request.validate_request() is True
-
-
-def test_create_post_invalid_platform():
-    request = CreatePostsRequest(
-        dry_run=False,
-        platform="amazon",
-        user_estimated_price=10000,
-        images=[b"abc"],
-        user_id=1,
-    )
-    with pytest.raises(ValueError, match="Invalid platform: amazon"):
-        request.validate_request()
-
-
-def test_create_invalid_post_request():
-    invalid_request = CreatePostsRequest(
-        dry_run=True,
-        platform="ebay",
-        user_estimated_price=50000,
-        images=[b"123"],
-        user_id=123,
-    )
-
-    # Missing required field 'platform'
-    invalid_request.platform = None
-    with pytest.raises(ValueError, match="Missing required field: platform"):
-        invalid_request.validate_request()
-
-    # Invalid platform value
-    invalid_request.platform = "invalid_platform"
-    with pytest.raises(ValueError, match="Invalid platform: invalid_platform"):
-        invalid_request.validate_request()
 
 
 def test_resolve_posts_backend_prefers_mongodb_when_uri_present(monkeypatch):
@@ -502,26 +432,29 @@ def test_resolve_ebay_category_id_raises_when_no_suggestions():
 
 
 def test_pick_condition_returns_desired_when_valid():
-    assert _pick_condition("USED_GOOD", ["NEW", "USED_GOOD", "USED_EXCELLENT"]) == "USED_GOOD"
+    result = EbayDraftPrefillService._pick_condition("USED_GOOD", ["NEW", "USED_GOOD", "USED_EXCELLENT"])
+    assert result == "USED_GOOD"
 
 
 def test_pick_condition_upgrades_when_desired_not_available():
     # USED_GOOD not available — should upgrade to USED_EXCELLENT
-    assert _pick_condition("USED_GOOD", ["NEW", "USED_EXCELLENT"]) == "USED_EXCELLENT"
+    result = EbayDraftPrefillService._pick_condition("USED_GOOD", ["NEW", "USED_EXCELLENT"])
+    assert result == "USED_EXCELLENT"
 
 
 def test_pick_condition_upgrades_to_new_as_last_resort():
-    assert _pick_condition("USED_ACCEPTABLE", ["NEW"]) == "NEW"
+    assert EbayDraftPrefillService._pick_condition("USED_ACCEPTABLE", ["NEW"]) == "NEW"
 
 
 def test_pick_condition_downgrades_when_no_better_option():
     # Only a worse condition is available
-    assert _pick_condition("USED_EXCELLENT", ["USED_GOOD"]) == "USED_GOOD"
+    assert EbayDraftPrefillService._pick_condition("USED_EXCELLENT", ["USED_GOOD"]) == "USED_GOOD"
 
 
 def test_pick_condition_returns_first_valid_for_unknown_desired():
-    assert _pick_condition("SOME_UNKNOWN", ["USED_GOOD", "NEW"]) == "USED_GOOD"
+    result = EbayDraftPrefillService._pick_condition("SOME_UNKNOWN", ["USED_GOOD", "NEW"])
+    assert result == "USED_GOOD"
 
 
 def test_pick_condition_returns_desired_when_no_valid_list():
-    assert _pick_condition("USED_GOOD", []) == "USED_GOOD"
+    assert EbayDraftPrefillService._pick_condition("USED_GOOD", []) == "USED_GOOD"

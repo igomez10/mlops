@@ -13,7 +13,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from product_analyzer.service import analyze_product_image_bytes
+from product_analyzer import analyze_product_image_bytes
 
 VALID_JSON = json.dumps(
     {
@@ -47,7 +47,7 @@ def _mlflow_off(monkeypatch):
 
 def test_bytes_entrypoint_returns_parsed_response(monkeypatch):
     monkeypatch.setattr(
-        "product_analyzer.service.call_gemini",
+        "product_analyzer.call_gemini",
         lambda data, mime: (VALID_JSON, {"prompt_tokens": 10, "response_tokens": 5}),
     )
 
@@ -61,7 +61,7 @@ def test_bytes_entrypoint_returns_parsed_response(monkeypatch):
 
 def test_bytes_entrypoint_accepts_filename_kwarg(monkeypatch):
     monkeypatch.setattr(
-        "product_analyzer.service.call_gemini",
+        "product_analyzer.call_gemini",
         lambda data, mime: (VALID_JSON, {}),
     )
     # filename is accepted but doesn't change behavior — just shouldn't raise.
@@ -75,7 +75,7 @@ def test_bytes_entrypoint_propagates_gemini_failure_as_502(monkeypatch):
     def _boom(data, mime):
         raise RuntimeError("Gemini API call failed: boom")
 
-    monkeypatch.setattr("product_analyzer.service.call_gemini", _boom)
+    monkeypatch.setattr("product_analyzer.call_gemini", _boom)
 
     with pytest.raises(HTTPException) as exc:
         asyncio.run(analyze_product_image_bytes(b"\xff\xd8\xff", "image/jpeg"))
@@ -88,7 +88,7 @@ def test_bytes_entrypoint_missing_project_is_503(monkeypatch):
     def _no_key(data, mime):
         raise RuntimeError("GOOGLE_CLOUD_PROJECT (or GCP_PROJECT) is required for Gemini ADC auth.")
 
-    monkeypatch.setattr("product_analyzer.service.call_gemini", _no_key)
+    monkeypatch.setattr("product_analyzer.call_gemini", _no_key)
 
     with pytest.raises(HTTPException) as exc:
         asyncio.run(analyze_product_image_bytes(b"\xff\xd8\xff", "image/jpeg"))
@@ -122,7 +122,7 @@ def test_existing_upload_endpoint_still_uses_shared_function(monkeypatch):
             price_estimate=PriceEstimate(low=1, high=2, currency="USD", reasoning="r", comparable_sources=[]),
         )
 
-    monkeypatch.setattr("product_analyzer.service.analyze_product_image_bytes", _spy)
+    monkeypatch.setattr("product_analyzer.analyze_product_image_bytes", _spy)
 
     from io import BytesIO
 
@@ -135,7 +135,7 @@ def test_existing_upload_endpoint_still_uses_shared_function(monkeypatch):
         headers=Headers({"content-type": "image/jpeg"}),
     )
 
-    from product_analyzer.service import analyze_product_image
+    from product_analyzer import analyze_product_image
 
     result = asyncio.run(analyze_product_image(upload))
     assert result.product_name == "x"

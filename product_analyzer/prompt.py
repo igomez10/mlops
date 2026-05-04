@@ -1,4 +1,3 @@
-# niki
 from __future__ import annotations
 
 PROMPT = """You are a product-cataloguing assistant for a resale marketplace.

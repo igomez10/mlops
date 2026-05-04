@@ -2,6 +2,7 @@ import sys
 from pathlib import Path
 
 import pytest
+from docker.errors import DockerException
 from testcontainers.mongodb import MongoDbContainer
 
 sys.path.insert(0, str(Path(__file__).parent))
@@ -44,5 +45,8 @@ def isolate_env_from_dotenv(request: pytest.FixtureRequest, monkeypatch: pytest.
 
 @pytest.fixture(scope="session")
 def mongo_container() -> MongoDbContainer:
-    with MongoDbContainer("mongo:7") as mongo:
-        yield mongo
+    try:
+        with MongoDbContainer("mongo:7") as mongo:
+            yield mongo
+    except DockerException as exc:
+        pytest.skip(f"Docker unavailable for Mongo integration tests: {exc}")
