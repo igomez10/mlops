@@ -69,7 +69,7 @@ def _text_calls(fake_mlflow: MagicMock) -> dict[str, str]:
 def test_happy_path_logs_full_run(monkeypatch, _mlflow_env):
     fake_mlflow = _mlflow_env
     monkeypatch.setattr(
-        "product_analyzer.service.call_gemini",
+        "product_analyzer.call_gemini",
         lambda data, mime: (VALID_JSON, {"prompt_tokens": 10, "response_tokens": 5}),
     )
 
@@ -109,7 +109,7 @@ def test_gemini_failure_still_logs_best_effort(monkeypatch, _mlflow_env):
     def _boom(data, mime):
         raise RuntimeError("Gemini API call failed: boom")
 
-    monkeypatch.setattr("product_analyzer.service.call_gemini", _boom)
+    monkeypatch.setattr("product_analyzer.call_gemini", _boom)
 
     with TestClient(app) as client:
         response = _post_image(client)
@@ -126,7 +126,7 @@ def test_gemini_failure_still_logs_best_effort(monkeypatch, _mlflow_env):
 def test_parse_failure_logs_zero_eval(monkeypatch, _mlflow_env):
     fake_mlflow = _mlflow_env
     monkeypatch.setattr(
-        "product_analyzer.service.call_gemini",
+        "product_analyzer.call_gemini",
         lambda data, mime: ("not json at all {", {}),
     )
 
@@ -147,7 +147,7 @@ def test_missing_project_returns_503(monkeypatch, _mlflow_env):
     def _no_key(data, mime):
         raise RuntimeError("GOOGLE_CLOUD_PROJECT (or GCP_PROJECT) is required for Gemini ADC auth.")
 
-    monkeypatch.setattr("product_analyzer.service.call_gemini", _no_key)
+    monkeypatch.setattr("product_analyzer.call_gemini", _no_key)
 
     with TestClient(app) as client:
         response = _post_image(client)

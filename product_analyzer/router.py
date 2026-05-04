@@ -1,10 +1,9 @@
-# niki
 from __future__ import annotations
 
 from fastapi import APIRouter, File, UploadFile
 
+from . import analyze_product_image
 from .schema import AnalyzeProductImageResponse
-from .service import analyze_product_image
 
 router = APIRouter()
 

@@ -44,5 +44,8 @@ def isolate_env_from_dotenv(request: pytest.FixtureRequest, monkeypatch: pytest.
 
 @pytest.fixture(scope="session")
 def mongo_container() -> MongoDbContainer:
-    with MongoDbContainer("mongo:7") as mongo:
-        yield mongo
+    try:
+        with MongoDbContainer("mongo:7") as mongo:
+            yield mongo
+    except Exception as exc:  # noqa: BLE001
+        pytest.skip(f"Docker unavailable for Mongo integration tests: {exc}")

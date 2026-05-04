@@ -1,172 +1,99 @@
 # MLOps
 
-End-to-end ML platform on GCP using MLflow for experiment tracking and FastAPI for model serving, with infrastructure managed by Terraform.
+This repository currently contains a FastAPI backend for image-based post creation and eBay draft/publish flows, a React frontend, and Terraform for the GCP environment.
 
-## Demo
+## Active Components
 
-[![Demo video](https://img.shields.io/badge/Watch-Demo-red?logo=youtube)](https://youtu.be/7x1f8ZFrliY)
+- `server.py`: main FastAPI application
+- `pkg/`: backend adapters and domain helpers
+- `product_analyzer/`: reusable image analysis package used by the backend
+- `frontend/`: Vite + React UI
+- `terraform/`: Cloud Run, storage, Vertex AI, and monitoring infrastructure
 
-## Architecture
+## Backend API
 
-```
-┌─────────────────────────────────────────────────────┐
-│                   GCP (us-central1)                 │
-│                                                     │
-│  ┌──────────────┐        ┌──────────────────────┐   │
-│  │  Cloud Run   │        │      Cloud Run       │   │
-│  │   MLflow     │◄───────│      FastAPI         │   │
-│  │  (tracking)  │        │   (model serving)    │   │
-│  └──────┬───────┘        └──────────────────────┘   │
-│         │                                           │
-│  ┌──────┴───────┐  ┌──────────────────────────┐     │
-│  │  GCS Bucket  │  │  Artifact Registry       │     │
-│  │  (artifacts) │  │  mlflow / fastapi images │     │
-│  └──────────────┘  └──────────────────────────┘     │
-│                                                     │
-│  ┌──────────────────────────────────────────────┐   │
-│  │  Vertex AI — linear-regression-endpoint      │   │
-│  └──────────────────────────────────────────────┘   │
-└─────────────────────────────────────────────────────┘
-```
+Main routes exposed by `server.py`:
 
-## Services
+- `GET /health`
+- `GET /posts`
+- `GET /posts/{post_id}`
+- `POST /posts`
+- `PUT /posts/{post_id}`
+- `DELETE /posts/{post_id}`
+- `PUT /posts/{post_id}/ebay-draft`
+- `POST /posts/{post_id}/ebay/publish`
+- `GET /auth/ebay/authorize`
+- `GET /auth/ebay/callback`
+- `GET /ebay/listings`
+- `GET /images/{object_path}`
 
-| Service | URL |
-|---------|-----|
-| MLflow  | https://mlflow-34676207684.us-central1.run.app |
-| FastAPI | https://fastapi-34676207684.us-central1.run.app |
-| FastAPI Dev | Provisioned by Terraform as `fastapi-dev`; URL available from `terraform output fastapi_dev_url` after apply |
+When a frontend build exists in `static/`, `/` and `/welcome` serve the UI.
 
-## Repository Layout
+## Local Development
 
-```
-.
-├── server.py              # FastAPI application
-├── Dockerfile.fastapi     # FastAPI container image
-├── docker-compose.yml     # Local dev stack (MLflow + FastAPI)
-├── requirements.txt       # Python dependencies
-├── Makefile               # All common operations
-├── notebook.ipynb         # Experimentation notebook
-└── terraform/
-    ├── main.tf            # Cloud Run, GCS, Artifact Registry
-    ├── vertex_ai.tf       # Vertex AI endpoint
-    ├── monitoring.tf      # Alerts and billing budget
-    ├── outputs.tf
-    ├── variables.tf
-    └── versions.tf
-```
-
-## FastAPI Endpoints
-
-Defined in `server.py`.
-
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/` | Welcome message |
-| GET | `/health` | Health check |
-| POST | `/predict` | Run model inference |
-| POST | `/add_query_parameters` | Add two numbers (query params) |
-| POST | `/add_body_parameters` | Add two numbers (body) |
-
-### `/predict` request/response
+Backend with Mongo-backed posts:
 
 ```bash
-curl -X POST https://fastapi-34676207684.us-central1.run.app/predict \
-  -H "Content-Type: application/json" \
-  -d '{"sqft": 1500, "rooms": 3}'
+make dev-server
 ```
 
-```json
-{"prediction": 1234}
-```
-
-The model is loaded from MLflow at startup via `MLFLOW_MODEL_URI`. Cold starts are slow; subsequent requests are fast.
-
-## Running Locally
-
-### Without Docker
+Frontend:
 
 ```bash
-MLFLOW_TRACKING_URI=https://mlflow-34676207684.us-central1.run.app \
-MLFLOW_MODEL_URI=runs:/6736c234459f44769f3475477b730f89/model \
-make run-fastapi
+make frontend-install
+make frontend-dev
 ```
 
-### With Docker Compose (MLflow + FastAPI)
+Useful URLs:
+
+- API: `http://127.0.0.1:8000`
+- Frontend dev server: `http://127.0.0.1:5173`
+- MLflow: `http://127.0.0.1:5001`
+
+## Tests
+
+Python tests:
 
 ```bash
-make build-fastapi
-MLFLOW_MODEL_URI=runs:/6736c234459f44769f3475477b730f89/model \
-make start-docker-compose
+uv run pytest -q -k "not live and not sandbox"
 ```
 
-MLflow will be available at http://localhost:5001 and FastAPI at http://localhost:8000.
-
-## Infrastructure (Terraform)
-
-All GCP resources are defined in `terraform/` and managed with:
+Frontend unit tests:
 
 ```bash
-make tf-plan    # preview changes
-make tf-apply   # apply changes
+cd frontend && npm test
 ```
 
-Before deploying Cloud Run revisions that read from Secret Manager, create at least
-one version for each required secret. This stack expects versions for
-`fastapi-ebay-app-id`, `fastapi-ebay-cert-id`, and `fastapi-ebay-runame`.
-
-### Resources
-
-| Resource | Name |
-|----------|------|
-| Artifact Registry | `mlflow`, `fastapi` (Docker) |
-| GCS Bucket | `mlops-492103-mlflow-artifacts` (model artifacts) |
-| GCS Bucket | `mlops-492103-mlflow-db` (MLflow backend store via SQLite) |
-| Cloud Run | `mlflow` (2 CPU, 2Gi RAM, max 1 instance) |
-| Cloud Run | `fastapi` (1 CPU, 512Mi RAM) |
-| Cloud Run | `fastapi-dev` (1 CPU, 512Mi RAM; same env/database/bucket as `fastapi`) |
-| Vertex AI Endpoint | `linear-regression-endpoint` |
-
-Both Cloud Run services use CPU throttling and scale to zero when idle.
-
-## Docker Images
-
-Images are stored in GCP Artifact Registry (`us-central1-docker.pkg.dev/mlops-492103/`).
+Frontend E2E:
 
 ```bash
-# Build and push FastAPI image
-make push-fastapi
-
-# Build and push beta FastAPI image for fastapi-dev
-make push-fastapi-dev
-
-# Pull official MLflow image and push to registry
-make push-mlflow
-
-# Redeploy services on Cloud Run
-make redeploy-fastapi
-make redeploy-fastapi-dev
-make redeploy-mlflow
+make frontend-e2e
 ```
 
-## Vertex AI
+Some integration tests require Docker for MongoDB testcontainers. If Docker is not running, those tests are skipped.
 
-A sklearn linear regression model can be uploaded and deployed to Vertex AI:
+## Configuration
+
+Primary backend settings are read from environment variables:
+
+- `POSTS_BACKEND`
+- `MONGODB_URI`
+- `MONGO_DATABASE`
+- `GOOGLE_CLOUD_PROJECT`
+- `GOOGLE_CLOUD_LOCATION`
+- `GCS_IMAGES_BUCKET`
+- `FIRESTORE_DATABASE_ID`
+- `GEMINI_MODEL`
+- `EBAY_APP_ID`
+- `EBAY_CERT_ID`
+- `EBAY_RUNAME`
+- `EBAY_MARKETPLACE_ID`
+
+## Terraform
+
+Infrastructure code lives in `terraform/`.
 
 ```bash
-make vertex-deploy-toy-model    # upload model artifact and deploy to endpoint
-make vertex-undeploy-toy-model  # remove deployed model from endpoint
+make tf-plan
+make tf-apply
 ```
-
-Model artifact is read from `gs://mlops-492103-mlflow-artifacts/models/linear-regression/`.
-
-## Monitoring & Alerts
-
-Defined in `terraform/monitoring.tf`. Alerts fire to the configured email on:
-
-- **5xx errors** — any Cloud Run 5xx response in the last 60s
-- **Log errors** — `severity >= ERROR` in Cloud Run logs (rate-limited to 1 alert per 5 min)
-- **High CPU** — p99 CPU utilization > 80% for 2 minutes on any Cloud Run service
-- **Billing budget** — alerts at 50% and 100% of the $50/month budget
-*i like sushi
-- **I dont like pizza**
