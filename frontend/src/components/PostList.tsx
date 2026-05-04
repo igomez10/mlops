@@ -292,14 +292,14 @@ export function PostList() {
   return (
     <div className="post-list">
       <div className="post-list-toolbar">
-        <h2 className="post-list-title">Your items</h2>
+        <h2 className="post-list-title">Your scans</h2>
         <button
           type="button"
           className="post-new-button"
           onClick={openCreate}
           data-testid="post-new-open"
         >
-          List an item
+          Scan new photo
         </button>
       </div>
 
@@ -371,9 +371,7 @@ export function PostList() {
               </button>
               <button
                 type="submit"
-                disabled={
-                  creating || !createDescription.trim() || !createImage
-                }
+                disabled={creating || !createDescription.trim() || !createImage}
                 data-testid="post-create-submit"
               >
                 {creating ? 'Uploading…' : 'Add to my items'}
@@ -408,8 +406,8 @@ export function PostList() {
 
       {posts && posts.length === 0 ? (
         <p className="empty" data-testid="posts-empty">
-          No items yet. Tap <strong>List an item</strong> to upload a photo and
-          description—we’ll take it from there on eBay.
+          No scans yet. Tap <strong>Scan new photo</strong> — one photo can
+          create dozens of listings.
         </p>
       ) : null}
 

@@ -130,7 +130,7 @@ def test_from_settings_creates_client():
     assert client._client_secret == "test-cert-id"
 
 
-def test_sandbox_uses_sandbox_urls():
+def test_ebay_client_uses_alternate_urls_when_not_production():
     transport = _MockTransport(
         [
             _json_response(_token_response()),
@@ -160,7 +160,7 @@ def test_production_uses_production_urls():
     assert "sandbox" not in str(transport.requests[1].url)
 
 
-def test_from_settings_sandbox_flag():
+def test_from_settings_uses_alternate_urls_when_not_production():
     client = EbayClient.from_settings(_settings(ebay_sandbox=True))
     assert "sandbox" in client._token_url
 

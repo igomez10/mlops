@@ -6,5 +6,7 @@
     "product_analyzer/tests/"
   ],
   "python.testing.unittestEnabled": false,
-  "python.testing.pytestEnabled": true
+  "python.testing.pytestEnabled": true,
+  "vitest.workspaceConfig": "${workspaceFolder}/frontend/vite.config.ts",
+  "vitest.rootConfig": "${workspaceFolder}/frontend/vite.config.ts"
 }
