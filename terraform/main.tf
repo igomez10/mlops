@@ -4,7 +4,14 @@
 # Variables are declared in variables.tf and set in terraform.tfvars.
 
 locals {
-  fastapi_cors_origins = "*"
+  fastapi_cors_origins = join(",", [
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+    "http://localhost:8000",
+    "http://127.0.0.1:8000",
+    "https://fastapi-${data.google_project.this.number}.${var.region}.run.app",
+    "https://fastapi-dev-${data.google_project.this.number}.${var.region}.run.app",
+  ])
 
   fastapi_env = [
     {
@@ -24,6 +31,10 @@ locals {
       value = var.project_id
     },
     {
+      name  = "GOOGLE_CLOUD_LOCATION"
+      value = var.region
+    },
+    {
       name  = "POSTS_BACKEND"
       value = "firestore"
     },
@@ -34,10 +45,6 @@ locals {
     {
       name  = "CORS_ORIGINS"
       value = local.fastapi_cors_origins
-    },
-    {
-      name  = "EBAY_RUNAME"
-      value = "ignacio_gomez-ignaciog-test-S-mfabetwed"
     },
     {
       name  = "EBAY_SANDBOX"
@@ -56,8 +63,16 @@ locals {
       secret  = google_secret_manager_secret.fastapi_ebay_cert_id.secret_id
       version = "latest"
     },
+    {
+      name    = "EBAY_RUNAME"
+      secret  = google_secret_manager_secret.fastapi_ebay_runame.secret_id
+      version = "latest"
+    },
   ]
 }
+
+# Secret containers are provisioned here, but secret versions must be created
+# separately before Cloud Run revisions can resolve `version = "latest"`.
 
 resource "google_storage_bucket" "terraform_state" {
   name          = "${var.project_id}-terraform-state"
@@ -83,6 +98,11 @@ resource "google_project_service" "firestore" {
 resource "google_project_service" "secretmanager" {
   project = var.project_id
   service = "secretmanager.googleapis.com"
+}
+
+resource "google_project_service" "aiplatform" {
+  project = var.project_id
+  service = "aiplatform.googleapis.com"
 }
 
 resource "google_firestore_database" "default" {
@@ -239,6 +259,17 @@ resource "google_secret_manager_secret" "fastapi_ebay_cert_id" {
   depends_on = [google_project_service.secretmanager]
 }
 
+resource "google_secret_manager_secret" "fastapi_ebay_runame" {
+  project   = var.project_id
+  secret_id = "fastapi-ebay-runame"
+
+  replication {
+    auto {}
+  }
+
+  depends_on = [google_project_service.secretmanager]
+}
+
 resource "google_project_iam_member" "fastapi_firestore_user" {
   project = var.project_id
   role    = "roles/datastore.user"
@@ -257,6 +288,19 @@ resource "google_secret_manager_secret_iam_member" "fastapi_ebay_cert_id_accesso
   secret_id = google_secret_manager_secret.fastapi_ebay_cert_id.secret_id
   role      = "roles/secretmanager.secretAccessor"
   member    = "serviceAccount:${google_service_account.fastapi.email}"
+}
+
+resource "google_secret_manager_secret_iam_member" "fastapi_ebay_runame_accessor" {
+  project   = var.project_id
+  secret_id = google_secret_manager_secret.fastapi_ebay_runame.secret_id
+  role      = "roles/secretmanager.secretAccessor"
+  member    = "serviceAccount:${google_service_account.fastapi.email}"
+}
+
+resource "google_project_iam_member" "fastapi_vertex_ai_user" {
+  project = var.project_id
+  role    = "roles/aiplatform.user"
+  member  = "serviceAccount:${google_service_account.fastapi.email}"
 }
 
 resource "google_artifact_registry_repository_iam_member" "fastapi_ar_reader" {

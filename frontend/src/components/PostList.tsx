@@ -316,77 +316,91 @@ export function PostList() {
             onSubmit={handleCreate}
             data-testid="post-create-form"
           >
-            <h2 className="post-create-dialog-title" id={titleId}>
-              List an item
-            </h2>
-            <label className="post-create-label" htmlFor="post-create-description">
-              Description
-            </label>
-            <textarea
-              id="post-create-description"
-              className="post-create-textarea"
-              value={createDescription}
-              onChange={(e) => setCreateDescription(e.target.value)}
-              rows={4}
-              disabled={creating}
-              placeholder="Condition, what's included, any flaws…"
-              data-testid="post-create-description"
-            />
-            <label className="post-create-label" htmlFor="post-create-image">
-              Image
-            </label>
-            <input
-              id="post-create-image"
-              type="file"
-              accept="image/jpeg,image/png,image/webp,image/gif"
-              disabled={creating}
-              data-testid="post-create-image"
-              onChange={(e) => {
-                const f = e.target.files?.[0] ?? null
-                setCreateImage(f)
-              }}
-            />
-            <label className="post-create-label" htmlFor="post-create-user-id">
-              eBay user ID
-            </label>
-            <input
-              id="post-create-user-id"
-              type="text"
-              className="post-create-input"
-              value={createUserId}
-              onChange={(e) => setCreateUserId(e.target.value)}
-              disabled={creating}
-              placeholder="Optional: enables automatic eBay publish"
-              data-testid="post-create-user-id"
-            />
-            <div className="post-create-dialog-actions">
-              <button
-                type="button"
-                className="secondary"
-                onClick={closeCreate}
-                disabled={creating}
-                data-testid="post-create-cancel"
-              >
-                Cancel
-              </button>
-              <button
-                type="submit"
-                disabled={creating || !createDescription.trim() || !createImage}
-                data-testid="post-create-submit"
-              >
-                {creating ? 'Uploading…' : 'Add to my items'}
-              </button>
+            <div className="post-create-dialog-header">
+              <h2 className="post-create-dialog-title" id={titleId}>
+                List an item
+              </h2>
+              <p className="post-create-dialog-subtitle">
+                Take a clear photo — AI will identify the item and suggest a selling price.
+              </p>
             </div>
-            <p className="post-create-hint muted">
-              We upload your photo securely first, then save your item so we can
-              prepare your eBay listing. Add an eBay user ID if you want us to
-              publish it immediately after analysis.
-            </p>
+            <div className="post-create-dialog-body">
+              {actionError ? (
+                <div className="banner error" role="alert" data-testid="posts-action-error">
+                  {actionError}
+                </div>
+              ) : null}
+
+              <label className="post-create-label" htmlFor="post-create-description">
+                Description
+              </label>
+              <textarea
+                id="post-create-description"
+                className="post-create-textarea"
+                value={createDescription}
+                onChange={(e) => setCreateDescription(e.target.value)}
+                rows={3}
+                disabled={creating}
+                placeholder="Condition, what's included, any flaws…"
+                data-testid="post-create-description"
+              />
+
+              <label className="post-create-label" htmlFor="post-create-image">
+                Photo
+              </label>
+              <div className="post-create-dropzone">
+                <input
+                  id="post-create-image"
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp"
+                  disabled={creating}
+                  data-testid="post-create-image"
+                  onChange={(e) => {
+                    const f = e.target.files?.[0] ?? null
+                    setCreateImage(f)
+                  }}
+                />
+              </div>
+
+              <label className="post-create-label" htmlFor="post-create-user-id">
+                eBay user ID{' '}
+                <span className="post-create-optional">optional</span>
+              </label>
+              <input
+                id="post-create-user-id"
+                type="text"
+                className="post-create-input"
+                value={createUserId}
+                onChange={(e) => setCreateUserId(e.target.value)}
+                disabled={creating}
+                placeholder="Enables automatic eBay publishing"
+                data-testid="post-create-user-id"
+              />
+
+              <div className="post-create-dialog-actions">
+                <button
+                  type="button"
+                  className="secondary"
+                  onClick={closeCreate}
+                  disabled={creating}
+                  data-testid="post-create-cancel"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={creating || !createDescription.trim() || !createImage}
+                  data-testid="post-create-submit"
+                >
+                  {creating ? 'Uploading…' : 'Add to my items'}
+                </button>
+              </div>
+            </div>
           </form>
         </div>
       ) : null}
 
-      {actionError ? (
+      {actionError && !createOpen ? (
         <div className="banner error" role="alert" data-testid="posts-action-error">
           {actionError}
         </div>
@@ -418,13 +432,12 @@ export function PostList() {
             <thead>
               <tr>
                 <th scope="col" className="col-expand">
-                  <span className="sr-only">Listings</span>
+                  <span className="sr-only">Details</span>
                 </th>
-                <th scope="col">Item</th>
-                <th scope="col">Created</th>
-                <th scope="col">Updated</th>
-                <th scope="col">Status</th>
-                <th scope="col">Actions</th>
+                <th scope="col" className="col-item">Item</th>
+                <th scope="col" className="col-when">Added</th>
+                <th scope="col" className="col-status">Status</th>
+                <th scope="col" className="col-actions">Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -491,16 +504,11 @@ export function PostList() {
                         )}
                       </td>
                       <td
+                        className="col-when"
                         data-testid="post-created"
                         title={formatAbsoluteWhen(p.created_at)}
                       >
                         {formatRelativeWhen(p.created_at, now)}
-                      </td>
-                      <td
-                        data-testid="post-updated"
-                        title={formatAbsoluteWhen(p.updated_at)}
-                      >
-                        {formatRelativeWhen(p.updated_at, now)}
                       </td>
                       <td data-testid="post-status">
                         {p.deleted_at ? (
@@ -562,7 +570,7 @@ export function PostList() {
                         data-testid="post-listings-row"
                         data-post-id={p.id}
                       >
-                        <td colSpan={6}>
+                        <td colSpan={5}>
                           <div
                             id={`post-listings-panel-${p.id}`}
                             className="post-listings-panel"
