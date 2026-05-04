@@ -2,6 +2,10 @@
 
 End-to-end ML platform on GCP using MLflow for experiment tracking and FastAPI for model serving, with infrastructure managed by Terraform.
 
+## Demo
+
+[![Demo video](https://img.shields.io/badge/Watch-Demo-red?logo=youtube)](https://youtu.be/7x1f8ZFrliY)
+
 ## Architecture
 
 ```

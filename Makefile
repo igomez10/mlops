@@ -56,10 +56,6 @@ tf-plan:
 tf-apply:
 	cd terraform && terraform apply -auto-approve
 
-# Build & deploy combined FastAPI + static UI to Cloud Run (gcloud, cloudbuild.yaml)
-gcp-build-app:
-	gcloud builds submit --config=cloudbuild.yaml --project $(GCP_PROJECT)
-
 
 push-mlflow:
 	docker pull --platform linux/amd64 ghcr.io/mlflow/mlflow:$(MLFLOW_VERSION)

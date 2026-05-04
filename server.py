@@ -1386,28 +1386,48 @@ def get_posts():
 
 
 def _configure_static_ui() -> None:
-    """Mount the built React UI when ``static/`` exists; fall back to a JSON root otherwise."""
+    """Mount the built React UI when ``static/`` exists; fall back to a JSON root otherwise.
+
+    StaticFiles mounted at "/" intercepts every path before FastAPI routes can
+    match, so we instead serve index.html explicitly for "/" and "/welcome" and
+    mount the static assets directory at "/assets" (and individual known files).
+    """
     static_root = Path(os.environ.get("STATIC_DIR", str(Path(__file__).resolve().parent / "static")))
     index_html = static_root / "index.html"
 
-    @app.get("/welcome", include_in_schema=False)
-    def welcome_page() -> FileResponse:
+    def _serve_index() -> FileResponse:
         if not index_html.is_file():
             raise HTTPException(status_code=404, detail="UI not built — run `npm run build` first")
         return FileResponse(index_html)
 
+    @app.get("/welcome", include_in_schema=False)
+    def welcome_page() -> FileResponse:
+        return _serve_index()
+
     if static_root.is_dir():
-        # Mount even if index.html doesn't exist yet so assets resolve correctly
-        # once the UI is built while the server is running.
-        app.mount(
-            "/",
-            StaticFiles(directory=str(static_root), html=True),
-            name="static",
-        )
+        # Mount assets sub-directory so hashed JS/CSS bundles resolve.
+        assets_dir = static_root / "assets"
+        if assets_dir.is_dir():
+            app.mount("/assets", StaticFiles(directory=str(assets_dir)), name="assets")
+
+        # Serve known top-level static files explicitly.
+        for filename in ("favicon.svg", "icons.svg", "demo-photo.jpg", "desk-photo.jpg"):
+            filepath = static_root / filename
+            if filepath.is_file():
+                _path = f"/{filename}"
+                _fp = filepath  # capture for closure
+
+                @app.get(_path, include_in_schema=False)
+                def _static_file(fp: Path = _fp) -> FileResponse:
+                    return FileResponse(fp)
+
+        @app.get("/", include_in_schema=False)
+        def root() -> FileResponse:
+            return _serve_index()
     else:
 
         @app.get("/")
-        def root() -> dict:
+        def root_json() -> dict:
             return {"message": "Welcome to mlops fastapi!"}
 
 
