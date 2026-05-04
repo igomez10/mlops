@@ -18,7 +18,7 @@ from typing import Any, cast
 import fastapi
 from fastapi import Depends, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, Response
+from fastapi.responses import FileResponse, HTMLResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, model_validator
 from pymongo import MongoClient
@@ -1386,9 +1386,19 @@ def get_posts():
 
 
 def _configure_static_ui() -> None:
-    """After production Docker build, ``static/index.html`` exists. Otherwise JSON welcome at ``/``."""
+    """Mount the built React UI when ``static/`` exists; fall back to a JSON root otherwise."""
     static_root = Path(os.environ.get("STATIC_DIR", str(Path(__file__).resolve().parent / "static")))
-    if (static_root / "index.html").is_file():
+    index_html = static_root / "index.html"
+
+    @app.get("/welcome", include_in_schema=False)
+    def welcome_page() -> FileResponse:
+        if not index_html.is_file():
+            raise HTTPException(status_code=404, detail="UI not built — run `npm run build` first")
+        return FileResponse(index_html)
+
+    if static_root.is_dir():
+        # Mount even if index.html doesn't exist yet so assets resolve correctly
+        # once the UI is built while the server is running.
         app.mount(
             "/",
             StaticFiles(directory=str(static_root), html=True),
