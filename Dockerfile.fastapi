@@ -14,6 +14,7 @@ WORKDIR /app
 RUN pip install --no-cache-dir uv
 COPY pyproject.toml uv.lock ./
 COPY pkg ./pkg
+COPY product_analyzer ./product_analyzer
 COPY server.py .
 ENV PATH="/app/.venv/bin:$PATH"
 RUN uv sync --frozen

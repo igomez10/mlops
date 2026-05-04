@@ -24,9 +24,10 @@ VERTEX_ARTIFACT_URI := gs://$(GCP_PROJECT)-mlflow-artifacts/models/linear-regres
 SKLEARN_IMAGE := us-docker.pkg.dev/vertex-ai/prediction/sklearn-cpu.1-3:latest
 AR_IMAGE := $(GCP_REGION)-docker.pkg.dev/$(GCP_PROJECT)/mlflow/mlflow:v3.10.1-full
 FASTAPI_IMAGE := $(GCP_REGION)-docker.pkg.dev/$(GCP_PROJECT)/fastapi/fastapi:latest
+FASTAPI_DEV_IMAGE := $(GCP_REGION)-docker.pkg.dev/$(GCP_PROJECT)/fastapi/fastapi-ignacio:latest
 MLFLOW_VERSION := v3.10.1-full
 
-.PHONY: build run stop clean tf-plan tf-apply gcp-build-app push-mlflow push-fastapi redeploy-mlflow redeploy-fastapi deploy-fastapi-local run-fastapi run-fastapi-firestore compose-up-dev dev-server dev-server-mongo start-docker-compose frontend-install frontend-dev ui frontend-e2e vertex-upload-toy-model vertex-deploy-toy-model vertex-undeploy-toy-model
+.PHONY: build run stop clean tf-plan tf-apply gcp-build-app push-mlflow push-fastapi push-fastapi-dev redeploy-mlflow redeploy-fastapi redeploy-fastapi-dev deploy-fastapi-local deploy-fastapi-dev-local run-fastapi run-fastapi-firestore compose-up-dev dev-server dev-server-mongo start-docker-compose frontend-install frontend-dev ui frontend-e2e lint test clear-posts clear-posts-firestore completion-zsh vertex-upload-toy-model vertex-deploy-toy-model vertex-undeploy-toy-model
 
 build-fastapi:
 	docker build -t $(FASTAPI_IMAGE) -f Dockerfile.fastapi .
@@ -79,6 +80,11 @@ push-fastapi:
 	gcloud auth configure-docker $(GCP_REGION)-docker.pkg.dev --quiet
 	docker push $(FASTAPI_IMAGE)
 
+push-fastapi-dev:
+	docker build --platform linux/amd64 -t $(FASTAPI_DEV_IMAGE) -f Dockerfile.fastapi .
+	gcloud auth configure-docker $(GCP_REGION)-docker.pkg.dev --quiet
+	docker push $(FASTAPI_DEV_IMAGE)
+
 redeploy-fastapi:
 	gcloud run deploy fastapi \
 		--image $(FASTAPI_IMAGE) \
@@ -87,7 +93,17 @@ redeploy-fastapi:
 		--project $(GCP_PROJECT) \
 		--quiet
 
+redeploy-fastapi-dev:
+	gcloud run deploy fastapi-dev \
+		--image $(FASTAPI_DEV_IMAGE) \
+		--cpu-throttling \
+		--region $(GCP_REGION) \
+		--project $(GCP_PROJECT) \
+		--quiet
+
 deploy-fastapi-local: push-fastapi redeploy-fastapi
+
+deploy-fastapi-dev-local: push-fastapi-dev redeploy-fastapi-dev
 
 run-fastapi:
 	$(LOAD_DOTENV) \
@@ -146,6 +162,34 @@ ui: frontend-dev
 # Playwright starts API (in-memory Mongo) + Vite on ports 9876 / 5174 (see frontend/e2e/ports.ts).
 frontend-e2e:
 	cd frontend && CI=1 npm run test:e2e
+
+test:
+	$(LOAD_DOTENV) \
+	GOOGLE_CLOUD_PROJECT=$(GCP_PROJECT) \
+	uv run pytest tests/ -q -k "not live and not sandbox"
+
+clear-posts:
+	mongosh $(DEV_MONGODB_URL)/mlops --eval 'db.posts.deleteMany({})'
+
+clear-posts-firestore:
+	$(LOAD_DOTENV) \
+	GOOGLE_CLOUD_PROJECT=$(GCP_PROJECT) \
+	uv run python3 -c "\
+import os; \
+from google.cloud import firestore; \
+db = firestore.Client(project=os.environ['GOOGLE_CLOUD_PROJECT'], database=os.environ.get('FIRESTORE_DATABASE_ID','(default)')); \
+coll = db.collection('posts'); \
+deleted = sum(1 for doc in coll.stream() if (doc.reference.delete() or True)); \
+print(f'Deleted {deleted} posts')"
+
+lint:
+	uv sync --frozen --group dev
+	uv run ruff check .
+	uv run mypy pkg/ server.py
+
+completion-zsh:
+	mkdir -p scripts/completion
+	uv run register-python-argcomplete --shell zsh ebay-cli > scripts/completion/_ebay-cli
 
 vertex-upload-toy-model:
 	gcloud ai models upload \

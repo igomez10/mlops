@@ -58,6 +58,9 @@ def test_gemini_from_settings_requires_project(monkeypatch):
         gemini_model="gem-m",
         vertex_location="us-central1",
         mongodb_uri=None,
+        ebay_app_id=None,
+        ebay_cert_id=None,
+        ebay_sandbox=False,
     )
     with pytest.raises(ValueError, match="GOOGLE_CLOUD_PROJECT"):
         GeminiClient.from_settings(settings)

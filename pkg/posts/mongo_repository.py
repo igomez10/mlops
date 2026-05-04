@@ -54,6 +54,8 @@ def _doc_to_post(doc: dict[str, Any]) -> Post:
     raw_desc = doc.get("description")
     raw_analysis = doc.get("analysis")
     analysis = raw_analysis if isinstance(raw_analysis, dict) else None
+    raw_ebay_draft = doc.get("ebay_draft")
+    ebay_draft = raw_ebay_draft if isinstance(raw_ebay_draft, dict) else None
     return Post(
         id=doc["_id"],
         name=doc["name"],
@@ -64,6 +66,7 @@ def _doc_to_post(doc: dict[str, Any]) -> Post:
         listings=listings,
         image_urls=image_urls,
         analysis=analysis,
+        ebay_draft=ebay_draft,
     )
 
 
@@ -132,6 +135,7 @@ class MongoPostRepository:
         post_id: str | None = None,
         image_urls: list[str] | None = None,
         analysis: dict | None = None,
+        listings: list[Listing] | None = None,
     ) -> Post:
         key = _normalize_name(name)
         if self._has_active_name_conflict(key):
@@ -141,7 +145,9 @@ class MongoPostRepository:
         pid = post_id or str(uuid.uuid4())
         desc = description.strip() if description else ""
         list_caption = desc or key
-        listings = _synthetic_listings_for_new_post(list_caption, urls, now)
+        resolved_listings = (
+            list(listings) if listings is not None else _synthetic_listings_for_new_post(list_caption, urls, now)
+        )
         raw_listings = [
             {
                 "id": L.id,
@@ -151,7 +157,7 @@ class MongoPostRepository:
                 "status": L.status,
                 "description": L.description,
             }
-            for L in listings
+            for L in resolved_listings
         ]
         doc = {
             "_id": pid,
@@ -163,6 +169,7 @@ class MongoPostRepository:
             "listings": raw_listings,
             "image_urls": urls,
             "analysis": analysis,
+            "ebay_draft": None,
         }
         try:
             self._coll.insert_one(doc)
@@ -209,6 +216,37 @@ class MongoPostRepository:
         self._coll.update_one(
             {"_id": post_id},
             {"$set": {"deleted_at": now, "updated_at": now}},
+        )
+        doc = self._coll.find_one({"_id": post_id})
+        return _doc_to_post(doc) if doc else None
+
+    def replace_listings(self, post_id: str, listings: list[Listing]) -> Post | None:
+        if self.get_by_id(post_id, include_deleted=False) is None:
+            return None
+        raw_listings = [
+            {
+                "id": listing.id,
+                "marketplace_url": listing.marketplace_url,
+                "image_url": listing.image_url,
+                "created_at": listing.created_at,
+                "status": listing.status,
+                "description": listing.description,
+            }
+            for listing in listings
+        ]
+        self._coll.update_one(
+            {"_id": post_id},
+            {"$set": {"listings": raw_listings, "updated_at": _utc_now()}},
+        )
+        doc = self._coll.find_one({"_id": post_id})
+        return _doc_to_post(doc) if doc else None
+
+    def set_ebay_draft(self, post_id: str, draft: dict | None) -> Post | None:
+        if self.get_by_id(post_id, include_deleted=False) is None:
+            return None
+        self._coll.update_one(
+            {"_id": post_id},
+            {"$set": {"ebay_draft": draft, "updated_at": _utc_now()}},
         )
         doc = self._coll.find_one({"_id": post_id})
         return _doc_to_post(doc) if doc else None

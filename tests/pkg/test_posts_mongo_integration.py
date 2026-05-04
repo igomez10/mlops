@@ -10,7 +10,7 @@ import pytest
 from pymongo import MongoClient
 from testcontainers.mongodb import MongoDbContainer
 
-from pkg.posts import MongoPostRepository, PostRepository
+from pkg.posts import Listing, MongoPostRepository, PostRepository
 
 
 @pytest.fixture
@@ -172,3 +172,34 @@ def test_mongo_create_with_image_urls_persists_listings(
     again = mongo_repo.get_by_id(p.id)
     assert again is not None
     assert len(again.listings) == 1
+
+
+@pytest.mark.integration
+def test_mongo_replace_listings_persists_marketplace_listing(
+    mongo_repo: MongoPostRepository,
+) -> None:
+    created = mongo_repo.create("replace-listings", image_urls=["posts/p-1/1.jpg"])
+    replacement = Listing(
+        id="listing-123",
+        marketplace_url="https://www.ebay.com/itm/listing-123",
+        image_url="posts/p-1/1.jpg",
+        created_at=created.created_at,
+        status="PUBLISHED",
+        description="Published on eBay",
+    )
+    updated = mongo_repo.replace_listings(created.id, [replacement])
+    assert updated is not None
+    assert len(updated.listings) == 1
+    assert updated.listings[0].id == replacement.id
+    assert updated.listings[0].marketplace_url == replacement.marketplace_url
+    assert updated.listings[0].image_url == replacement.image_url
+    assert updated.listings[0].status == replacement.status
+    assert updated.listings[0].description == replacement.description
+    fetched = mongo_repo.get_by_id(created.id)
+    assert fetched is not None
+    assert len(fetched.listings) == 1
+    assert fetched.listings[0].id == replacement.id
+    assert fetched.listings[0].marketplace_url == replacement.marketplace_url
+    assert fetched.listings[0].image_url == replacement.image_url
+    assert fetched.listings[0].status == replacement.status
+    assert fetched.listings[0].description == replacement.description

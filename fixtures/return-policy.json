@@ -1,0 +1,12 @@
+{
+  "name": "Codex Sandbox Return Policy",
+  "description": "Test return policy created from CLI",
+  "marketplaceId": "EBAY_US",
+  "refundMethod": "MONEY_BACK",
+  "returnsAccepted": true,
+  "returnShippingCostPayer": "SELLER",
+  "returnPeriod": {
+    "value": 30,
+    "unit": "DAY"
+  }
+}

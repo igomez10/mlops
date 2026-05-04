@@ -31,3 +31,5 @@ class Post:
     # Optional Gemini product analysis attached at create time. Opaque dict so
     # the post layer doesn't depend on the analyzer schema.
     analysis: dict | None = None
+    # Draft eBay listing (category, title, item specifics, etc.) awaiting user review.
+    ebay_draft: dict | None = None

@@ -14,17 +14,23 @@ When running the real app against Compose, use ``MONGO_DATABASE`` (default ``mlo
 
 from __future__ import annotations
 
+import json
 import os
 import uuid
+from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
 from typing import Any
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import httpx
 import pytest
 from fastapi.testclient import TestClient
 from pymongo import MongoClient
 
-from server import app
+from pkg import EbayUserToken, InMemoryEbayTokenRepository
+from product_analyzer import ProductAnalyzer
+from product_analyzer.schema import AnalyzeProductImageResponse, PriceEstimate
+from server import app, app_state
 
 
 def _post_names(name_suffix: str) -> tuple[str, str, str]:
@@ -218,3 +224,177 @@ def test_e2e_posts_crud_live_server() -> None:
     suffix = uuid.uuid4().hex[:12]
     with httpx.Client(base_url=base, timeout=30.0) as client:
         _run_full_post_crud_over_http(client, name_suffix=suffix, isolate=False)
+
+
+# ---------------------------------------------------------------------------
+# eBay listing creation E2E
+# ---------------------------------------------------------------------------
+
+_MINIMAL_JPEG = b"\xff\xd8\xff\xe0" + b"\x00" * 12  # just enough for MIME detection
+
+
+class _FakeEbayClient:
+    """Stub that records calls and returns plausible success responses."""
+
+    def __init__(self) -> None:
+        self.calls: list[tuple] = []
+        self._sandbox = False
+
+    def get_category_suggestions(self, query: str, *, marketplace_id: str | None = None):
+        self.calls.append(("get_category_suggestions", query))
+        return [SimpleNamespace(category_id="9355")]
+
+    def get_valid_conditions(self, category_id: str, *, marketplace_id: str | None = None):
+        self.calls.append(("get_valid_conditions", category_id))
+        return ["NEW", "USED_EXCELLENT", "USED_GOOD"]
+
+    def get_item_aspects_for_category(self, category_id: str, *, category_tree_id: str | None = None):
+        self.calls.append(("get_item_aspects_for_category", category_id))
+        return []
+
+    def get_fulfillment_policies(self, user_token: str, *, marketplace_id: str | None = None):
+        self.calls.append(("get_fulfillment_policies",))
+        return [SimpleNamespace(policy_id="fulfill-1")]
+
+    def get_payment_policies(self, user_token: str, *, marketplace_id: str | None = None):
+        self.calls.append(("get_payment_policies",))
+        return [SimpleNamespace(policy_id="payment-1")]
+
+    def get_return_policies(self, user_token: str, *, marketplace_id: str | None = None):
+        self.calls.append(("get_return_policies",))
+        return [SimpleNamespace(policy_id="return-1")]
+
+    def create_inventory_location(self, key: str, user_token: str, payload: dict):
+        self.calls.append(("create_inventory_location",))
+
+    def create_or_replace_inventory_item(self, sku: str, user_token: str, payload: dict):
+        self.calls.append(("create_or_replace_inventory_item", sku, payload))
+
+    def create_offer(self, user_token: str, payload: dict) -> str:
+        self.calls.append(("create_offer", payload))
+        return "offer-456"
+
+    def publish_offer(self, offer_id: str, user_token: str) -> dict:
+        self.calls.append(("publish_offer", offer_id))
+        return {"listingId": "listing-456", "listingWebUrl": "https://www.ebay.com/itm/listing-456"}
+
+    def get_offer(self, offer_id: str, user_token: str) -> dict:
+        self.calls.append(("get_offer", offer_id))
+        return {"offerId": offer_id, "listingId": "listing-456", "status": "PUBLISHED"}
+
+
+def _seed_token(user_id: str) -> InMemoryEbayTokenRepository:
+    repo = InMemoryEbayTokenRepository()
+    repo.upsert(
+        EbayUserToken(
+            user_id=user_id,
+            access_token="test-access-token",
+            refresh_token="test-refresh-token",
+            token_type="Bearer",
+            scopes=[],
+            expires_at=datetime.now(timezone.utc) + timedelta(hours=1),
+        )
+    )
+    return repo
+
+
+def _fake_gemini_for(analysis: AnalyzeProductImageResponse):
+    def _call(image_bytes: bytes, mime_type: str) -> tuple[str, dict[str, float]]:
+        return json.dumps(analysis.model_dump(mode="json")), {"prompt_tokens": 5.0, "response_tokens": 5.0}
+
+    return _call
+
+
+@pytest.mark.e2e
+def test_e2e_post_create_user_123_publishes_ebay_listing(e2e_client: TestClient) -> None:
+    """POST /posts with user_id=123 builds an eBay draft; POST /ebay/publish creates the listing."""
+    analysis = AnalyzeProductImageResponse(
+        product_name="Apple AirPods Pro",
+        brand="Apple",
+        model="AirPods Pro",
+        category="Earbud Headphones",
+        condition_estimate="good",
+        price_estimate=PriceEstimate(low=110, high=160, currency="USD", reasoning="r"),
+    )
+    fake_ebay = _FakeEbayClient()
+    storage = MagicMock()
+    storage.bucket_name = "mlops-images"
+    storage.upload_bytes = MagicMock()
+
+    app_state["product_analyzer"] = ProductAnalyzer(gemini_caller=_fake_gemini_for(analysis))
+    app_state["images_storage"] = storage
+    app_state["ebay_token_repository"] = _seed_token("123")
+    try:
+        with patch("server._get_ebay_client", lambda _: fake_ebay):
+            # Step 1: create post — should build draft, not publish
+            response = e2e_client.post(
+                "/posts",
+                data={"description": "AirPods Pro in great condition", "user_id": "123"},
+                files=[("files", ("airpods.jpg", _MINIMAL_JPEG, "image/jpeg"))],
+            )
+            assert response.status_code == 201, response.text
+            body = response.json()
+
+            # Analysis was attached
+            assert body["analysis"]["product_name"] == "Apple AirPods Pro"
+            assert body["analysis"]["brand"] == "Apple"
+
+            # Draft was built — no published eBay listing yet (only synthetic draft listings)
+            assert not any("ebay.com" in (lst.get("marketplace_url") or "") for lst in body["listings"])
+            assert body["ebay_draft"] is not None
+            draft = body["ebay_draft"]
+            assert draft["user_id"] == "123"
+            assert draft["category_id"] == "9355"
+            assert "title" in draft
+
+            # Draft is persisted
+            get_r = e2e_client.get(f"/posts/{body['id']}")
+            assert get_r.status_code == 200, get_r.text
+            assert get_r.json()["ebay_draft"] is not None
+
+            # Draft creation call sequence
+            draft_calls = [c[0] for c in fake_ebay.calls]
+            assert draft_calls == [
+                "get_category_suggestions",
+                "get_valid_conditions",
+                "get_item_aspects_for_category",
+            ]
+            assert fake_ebay.calls[0][1] == "Apple AirPods Pro"
+
+            # Step 2: publish the draft
+            fake_ebay.calls.clear()
+            pub_r = e2e_client.post(f"/posts/{body['id']}/ebay/publish")
+            assert pub_r.status_code == 200, pub_r.text
+            pub_body = pub_r.json()
+
+            # Listing was created
+            assert len(pub_body["listings"]) == 1
+            listing = pub_body["listings"][0]
+            assert listing["id"] == "listing-456"
+            assert listing["marketplace_url"] == "https://www.ebay.com/itm/listing-456"
+            assert listing["status"] == "PUBLISHED"
+
+            # Draft was cleared after successful publish
+            assert pub_body["ebay_draft"] is None
+
+            # Publish call sequence
+            pub_call_names = [c[0] for c in fake_ebay.calls]
+            assert pub_call_names == [
+                "get_valid_conditions",
+                "get_fulfillment_policies",
+                "get_payment_policies",
+                "get_return_policies",
+                "create_inventory_location",
+                "create_or_replace_inventory_item",
+                "create_offer",
+                "publish_offer",
+                "get_offer",
+            ]
+
+            # Offer was created with the right category and SKU from the draft
+            offer_payload = next(c[1] for c in fake_ebay.calls if c[0] == "create_offer")
+            assert offer_payload["categoryId"] == "9355"
+            assert offer_payload["sku"] == f"post-{body['id']}"
+    finally:
+        app_state.pop("product_analyzer", None)
+        app_state["images_storage"] = None

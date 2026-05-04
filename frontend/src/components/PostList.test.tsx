@@ -60,6 +60,7 @@ describe('PostList', () => {
       screen.getByTestId('post-create-description'),
       'From dialog',
     )
+    await user.type(screen.getByTestId('post-create-user-id'), 'user-123')
     const file = new File([new Uint8Array([1, 2, 3])], 'x.png', {
       type: 'image/png',
     })
@@ -71,7 +72,9 @@ describe('PostList', () => {
     })
     const row = screen.getByTestId('post-row')
     expect(within(row).getByTestId('post-name')).toHaveTextContent('From dialog')
-    expect(client.createPostWithImage).toHaveBeenCalledWith('From dialog', file)
+    expect(client.createPostWithImage).toHaveBeenCalledWith('From dialog', file, {
+      userId: 'user-123',
+    })
     expect(client.fetchPosts).toHaveBeenCalledTimes(2)
   })
 
@@ -125,5 +128,62 @@ describe('PostList', () => {
       within(panel).getByTestId('post-listing-description'),
     ).toHaveTextContent('One')
     expect(within(panel).queryByTestId('post-add-listing-submit')).toBeNull()
+  })
+
+  it('shows analysis fields and ebay link when the listing is published', async () => {
+    const user = userEvent.setup()
+    const publishedListing = {
+      id: 'L1',
+      marketplace_url: 'https://www.ebay.com/itm/L1',
+      image_url: 'https://i.com/1.jpg',
+      created_at: '2024-01-15T10:00:00.000Z',
+      status: 'PUBLISHED',
+      description: 'Apple AirPods Pro',
+    }
+    const p = post({
+      id: 'p-analysis',
+      name: 'airpods',
+      description: 'AirPods',
+      listings: [publishedListing],
+      analysis: {
+        product_name: 'Apple AirPods Pro',
+        brand: 'Apple',
+        model: 'AirPods Pro',
+        category: 'Earbud Headphones',
+        condition_estimate: 'good',
+        visible_text: ['AirPods', 'Apple'],
+        confidence: 0.92,
+        price_estimate: {
+          low: 110,
+          high: 160,
+          currency: 'USD',
+          reasoning: 'r',
+          comparable_sources: [],
+        },
+      },
+    })
+    vi.mocked(client.fetchPosts).mockResolvedValue([p])
+
+    render(<PostList />)
+    await waitFor(() => screen.getByTestId('posts-table'))
+
+    const row = screen.getByTestId('post-row')
+    expect(within(row).getByTestId('post-ebay-link')).toHaveAttribute(
+      'href',
+      'https://www.ebay.com/itm/L1',
+    )
+
+    await user.click(screen.getByTestId('post-toggle-listings'))
+    const panel = screen.getByTestId('post-listings-panel')
+    expect(within(panel).getByTestId('post-analysis-product-name')).toHaveTextContent(
+      'Apple AirPods Pro',
+    )
+    expect(within(panel).getByTestId('post-analysis-price')).toHaveTextContent(
+      'USD 110–160',
+    )
+    expect(within(panel).getByTestId('post-analysis-ebay-link')).toHaveAttribute(
+      'href',
+      'https://www.ebay.com/itm/L1',
+    )
   })
 })

@@ -8,6 +8,7 @@ from __future__ import annotations
 import json
 import os
 import uuid
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
@@ -15,6 +16,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from fastapi.testclient import TestClient
 
+from pkg import EbayUserToken, InMemoryEbayTokenRepository
 from product_analyzer import ProductAnalyzer
 from product_analyzer.parser import parse_gemini_json
 from product_analyzer.schema import AnalyzeProductImageResponse, PriceEstimate
@@ -59,6 +61,25 @@ def _make_analyzer_mock(method) -> SimpleNamespace:
 
 def _valid_gemini_json() -> str:
     return json.dumps(_fake_analysis().model_dump(mode="json"))
+
+
+def _fixture_image(name: str) -> Path:
+    return Path("fixtures") / name
+
+
+def _seed_ebay_repo(user_id: str) -> InMemoryEbayTokenRepository:
+    repo = InMemoryEbayTokenRepository()
+    repo.upsert(
+        EbayUserToken(
+            user_id=user_id,
+            access_token="user-access-token",
+            refresh_token="refresh-token",
+            token_type="Bearer",
+            scopes=[],
+            expires_at=datetime.now(timezone.utc) + timedelta(hours=1),
+        )
+    )
+    return repo
 
 
 def _assert_live_gemini_auth_configured() -> None:
@@ -129,7 +150,7 @@ def test_post_create_succeeds_when_analyzer_raises(client: TestClient) -> None:
 
 
 def test_post_create_skips_analyzer_for_unsupported_mime(client: TestClient) -> None:
-    """webp/gif uploads are stored but not analyzed; no analyzer call should happen."""
+    """gif uploads are stored but not analyzed; no analyzer call should happen."""
     spy = MagicMock()
 
     async def _spy(*args, **kwargs):
@@ -141,8 +162,8 @@ def test_post_create_skips_analyzer_for_unsupported_mime(client: TestClient) -> 
     try:
         r = client.post(
             "/posts",
-            data={"description": "webp only"},
-            files=[("files", ("a.webp", b"RIFF\x00\x00\x00\x00WEBP", "image/webp"))],
+            data={"description": "gif only"},
+            files=[("files", ("a.gif", b"GIF89a\x00\x00", "image/gif"))],
         )
         assert r.status_code == 201, r.text
         body = r.json()
@@ -153,9 +174,9 @@ def test_post_create_skips_analyzer_for_unsupported_mime(client: TestClient) -> 
         app_state["images_storage"] = None
 
 
-def test_post_create_uses_first_jpeg_png_when_mixed(client: TestClient) -> None:
-    """When uploads include both unsupported and supported types, only the
-    first JPEG/PNG should be analyzed (one call total)."""
+def test_post_create_uses_first_supported_image_when_mixed(client: TestClient) -> None:
+    """When uploads include gif (unsupported) and webp/jpeg/png, only the
+    first supported image should be analyzed (one call total)."""
     captured = []
 
     async def _spy(image_bytes, mime_type, *, filename=None, price_estimator=None):
@@ -169,9 +190,9 @@ def test_post_create_uses_first_jpeg_png_when_mixed(client: TestClient) -> None:
             "/posts",
             data={"description": "mixed"},
             files=[
-                ("files", ("a.webp", b"RIFFwebp", "image/webp")),
-                ("files", ("b.jpg", b"\xff\xd8\xff jpeg-bytes", "image/jpeg")),
-                ("files", ("c.png", b"\x89PNG more", "image/png")),
+                ("files", ("a.gif", b"GIF89a\x00\x00", "image/gif")),
+                ("files", ("b.webp", b"RIFFwebp", "image/webp")),
+                ("files", ("c.jpg", b"\xff\xd8\xff jpeg-bytes", "image/jpeg")),
             ],
         )
         assert r.status_code == 201, r.text
@@ -181,7 +202,7 @@ def test_post_create_uses_first_jpeg_png_when_mixed(client: TestClient) -> None:
         assert get_r.status_code == 200, get_r.text
         assert get_r.json()["analysis"] == body["analysis"]
         assert len(captured) == 1
-        assert captured[0][1] == "image/jpeg"
+        assert captured[0][1] == "image/webp"
     finally:
         app_state.pop("product_analyzer", None)
         app_state["images_storage"] = None
@@ -234,6 +255,162 @@ def test_post_create_persists_analysis_end_to_end_with_real_analyzer_and_mocked_
         rows = listed.json()
         [row] = [row for row in rows if row["id"] == created["id"]]
         assert row["analysis"] == created["analysis"]
+    finally:
+        app_state.pop("product_analyzer", None)
+        app_state["images_storage"] = None
+
+
+def test_post_create_uploads_airpods_and_publishes_ebay_listing_end_to_end(
+    client: TestClient,
+) -> None:
+    image_path = _fixture_image("airpods.jpg")
+    assert image_path.exists(), f"missing fixture image: {image_path}"
+
+    class _FakeEbayClient:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, object]] = []
+            self._sandbox = False
+
+        def get_category_suggestions(self, query: str, *, marketplace_id: str | None = None):
+            self.calls.append(("get_category_suggestions", query, marketplace_id))
+            return [
+                SimpleNamespace(
+                    category_id="9355",
+                    category_name="Cell Phones & Smartphones",
+                    category_tree_id="0",
+                    category_tree_version=None,
+                    path=["Electronics"],
+                )
+            ]
+
+        def get_valid_conditions(self, category_id: str, *, marketplace_id: str | None = None):
+            self.calls.append(("get_valid_conditions", category_id))
+            return ["NEW", "USED_EXCELLENT", "USED_GOOD"]
+
+        def get_item_aspects_for_category(self, category_id: str, *, category_tree_id: str | None = None):
+            self.calls.append(("get_item_aspects_for_category", category_id))
+            return []
+
+        def get_fulfillment_policies(self, user_token: str, *, marketplace_id: str | None = None):
+            self.calls.append(("get_fulfillment_policies", user_token, marketplace_id))
+            return [SimpleNamespace(policy_id="fulfill-1")]
+
+        def get_payment_policies(self, user_token: str, *, marketplace_id: str | None = None):
+            self.calls.append(("get_payment_policies", user_token, marketplace_id))
+            return [SimpleNamespace(policy_id="payment-1")]
+
+        def get_return_policies(self, user_token: str, *, marketplace_id: str | None = None):
+            self.calls.append(("get_return_policies", user_token, marketplace_id))
+            return [SimpleNamespace(policy_id="return-1")]
+
+        def create_inventory_location(self, merchant_location_key: str, user_token: str, payload: dict):
+            self.calls.append(("create_inventory_location", merchant_location_key, user_token, payload))
+
+        def create_or_replace_inventory_item(self, sku: str, user_token: str, payload: dict):
+            self.calls.append(("create_or_replace_inventory_item", sku, user_token, payload))
+
+        def create_offer(self, user_token: str, payload: dict) -> str:
+            self.calls.append(("create_offer", user_token, payload))
+            return "offer-123"
+
+        def publish_offer(self, offer_id: str, user_token: str) -> dict:
+            self.calls.append(("publish_offer", offer_id, user_token))
+            return {"listingId": "listing-123", "listingWebUrl": "https://www.ebay.com/itm/listing-123"}
+
+        def get_offer(self, offer_id: str, user_token: str) -> dict:
+            self.calls.append(("get_offer", offer_id, user_token))
+            return {"offerId": offer_id, "listingId": "listing-123", "status": "PUBLISHED"}
+
+    fake_client = _FakeEbayClient()
+
+    def _fake_gemini(image_bytes: bytes, mime_type: str) -> tuple[str, dict[str, float]]:
+        assert mime_type == "image/jpeg"
+        assert image_bytes[:2] == b"\xff\xd8"
+        body = _fake_analysis().model_copy(
+            update={
+                "product_name": "Apple AirPods Pro",
+                "brand": "Apple",
+                "model": "AirPods Pro",
+                "category": "Earbud Headphones",
+                "condition_estimate": "good",
+                "price_estimate": PriceEstimate(
+                    low=110,
+                    high=160,
+                    currency="USD",
+                    reasoning="r",
+                    comparable_sources=[],
+                ),
+            }
+        )
+        return json.dumps(body.model_dump(mode="json")), {"prompt_tokens": 10.0, "response_tokens": 8.0}
+
+    app_state["product_analyzer"] = ProductAnalyzer(gemini_caller=_fake_gemini)
+    app_state["images_storage"] = _make_storage_mock()
+    app_state["ebay_token_repository"] = _seed_ebay_repo("user-123")
+    try:
+        with patch("server._get_ebay_client", lambda settings: fake_client):
+            # Step 1: create post → should build draft, not publish
+            response = client.post(
+                "/posts",
+                data={"description": "AirPods from image upload", "user_id": "user-123"},
+                files=[("files", (image_path.name, image_path.read_bytes(), "image/jpeg"))],
+            )
+            assert response.status_code == 201, response.text
+            body = response.json()
+            assert body["analysis"] is not None
+            assert body["analysis"]["product_name"] == "Apple AirPods Pro"
+
+            # Draft was created, no published eBay listing yet
+            assert not any("ebay.com" in (lst.get("marketplace_url") or "") for lst in body["listings"])
+            assert body["ebay_draft"] is not None
+            assert body["ebay_draft"]["category_id"] == "9355"
+
+            # Draft creation call sequence
+            call_names = [call[0] for call in fake_client.calls]
+            assert call_names == [
+                "get_category_suggestions",
+                "get_valid_conditions",
+                "get_item_aspects_for_category",
+            ]
+            category_call = next(call for call in fake_client.calls if call[0] == "get_category_suggestions")
+            assert category_call[1] == "Apple AirPods Pro"
+
+            # Step 2: publish the draft
+            fake_client.calls.clear()
+            pub_r = client.post(f"/posts/{body['id']}/ebay/publish")
+            assert pub_r.status_code == 200, pub_r.text
+            pub_body = pub_r.json()
+
+            assert len(pub_body["listings"]) == 1
+            listing = pub_body["listings"][0]
+            assert listing["id"] == "listing-123"
+            assert listing["marketplace_url"] == "https://www.ebay.com/itm/listing-123"
+            assert listing["status"] == "PUBLISHED"
+            assert "Product: Apple AirPods Pro" in listing["description"]
+
+            # Draft cleared after publish
+            assert pub_body["ebay_draft"] is None
+
+            # Publish call sequence
+            pub_calls = [call[0] for call in fake_client.calls]
+            assert pub_calls == [
+                "get_valid_conditions",
+                "get_fulfillment_policies",
+                "get_payment_policies",
+                "get_return_policies",
+                "create_inventory_location",
+                "create_or_replace_inventory_item",
+                "create_offer",
+                "publish_offer",
+                "get_offer",
+            ]
+            inventory_payload = [call for call in fake_client.calls if call[0] == "create_or_replace_inventory_item"][
+                0
+            ][3]
+            assert inventory_payload["product"]["brand"] == "Apple"
+            assert inventory_payload["product"]["mpn"] == "AirPods Pro"
+            assert inventory_payload["product"]["imageUrls"][0].startswith("http://testserver/images/posts/")
+            assert inventory_payload["product"].get("aspects", {}).get("Brand") == ["Apple"]
     finally:
         app_state.pop("product_analyzer", None)
         app_state["images_storage"] = None
