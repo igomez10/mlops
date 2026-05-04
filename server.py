@@ -620,11 +620,11 @@ if os.environ.get("E2E_TEST") == "1":
     class _E2EConfiguredAnalyzer:
         async def analyze_product_image_bytes(
             self,
-            image_bytes: bytes,
-            mime_type: str,
+            image_bytes: bytes,  # noqa: ARG002
+            mime_type: str,  # noqa: ARG002
             *,
-            filename: str | None = None,
-            price_estimator: Any | None = None,
+            filename: str | None = None,  # noqa: ARG002
+            price_estimator: Any | None = None,  # noqa: ARG002
         ):
             from product_analyzer.schema import AnalyzeProductImageResponse, PriceEstimate
 
@@ -649,7 +649,7 @@ if os.environ.get("E2E_TEST") == "1":
         def __init__(self) -> None:
             self._sandbox = False
 
-        def get_category_suggestions(self, query: str, *, marketplace_id: str | None = None):
+        def get_category_suggestions(self, query: str, *, marketplace_id: str | None = None):  # noqa: ARG002
             return [
                 type(
                     "CategorySuggestion",
@@ -664,10 +664,10 @@ if os.environ.get("E2E_TEST") == "1":
                 )()
             ]
 
-        def get_valid_conditions(self, category_id: str, *, marketplace_id: str | None = None):
+        def get_valid_conditions(self, category_id: str, *, marketplace_id: str | None = None):  # noqa: ARG002
             return ["NEW", "USED_EXCELLENT", "USED_GOOD"]
 
-        def get_item_aspects_for_category(self, category_id: str, *, category_tree_id: str | None = None):
+        def get_item_aspects_for_category(self, category_id: str, *, category_tree_id: str | None = None):  # noqa: ARG002
             return [
                 {"localizedAspectName": "Brand", "aspectConstraint": {"aspectRequired": True}},
                 {"localizedAspectName": "Model", "aspectConstraint": {"aspectRequired": True}},

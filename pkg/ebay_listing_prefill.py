@@ -6,12 +6,12 @@ import re
 from dataclasses import dataclass
 from typing import Any, Callable
 
-log = logging.getLogger(__name__)
-
 from pkg.config import CloudSettings
 from pkg.ebay import EbayClient
 from pkg.gemini import GeminiClient
 from pkg.posts import Post
+
+log = logging.getLogger(__name__)
 
 
 @dataclass(slots=True)
