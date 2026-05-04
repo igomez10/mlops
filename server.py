@@ -40,6 +40,7 @@ from pkg import (
     MongoEbayTokenRepository,
 )
 from pkg.ebay import DEFAULT_USER_SCOPES, EbayClient
+from pkg.ebay_listing_prefill import EbayDraftPrefillService
 from pkg.gcs import api_absolute_url_for_object_key, normalize_stored_to_object_key  # noqa: E402
 from pkg.gemini import GeminiClient
 from pkg.posts import InMemoryPostRepository, Listing, MongoPostRepository, Post, PostRepository  # noqa: E402
@@ -167,7 +168,7 @@ def get_images_storage() -> GoogleCloudStorage | None:
 
 def _get_ebay_client(settings: CloudSettings) -> EbayClient:
     client = app_state.get("ebay_client")
-    if isinstance(client, EbayClient):
+    if client is not None:
         return client
     return EbayClient.from_settings(settings)
 
@@ -373,64 +374,19 @@ def _get_valid_ebay_user_token(
 
 
 def _resolve_ebay_listing_title(analysis: dict[str, Any], fallback: str) -> str:
-    parts = [
-        str(analysis.get("brand") or "").strip(),
-        str(analysis.get("product_name") or "").strip(),
-        str(analysis.get("model") or "").strip(),
-    ]
-    raw = " ".join(part for part in parts if part)
-    title = raw or fallback.strip() or "Marketplace listing"
-    return title[:80]
+    return EbayDraftPrefillService._resolve_listing_title(analysis, fallback)
 
 
 def _resolve_ebay_listing_description(analysis: dict[str, Any], fallback: str) -> str:
-    lines: list[str] = []
-    if fallback.strip():
-        lines.append(fallback.strip())
-    product_name = str(analysis.get("product_name") or "").strip()
-    if product_name:
-        lines.append(f"Product: {product_name}")
-    category = str(analysis.get("category") or "").strip()
-    if category:
-        lines.append(f"Category: {category}")
-    condition = str(analysis.get("condition_estimate") or "").strip()
-    if condition:
-        lines.append(f"Condition estimate: {condition}")
-    visible_text = [str(item).strip() for item in (analysis.get("visible_text") or []) if str(item).strip()]
-    if visible_text:
-        lines.append(f"Visible text: {', '.join(visible_text[:5])}")
-    return "\n".join(lines) or "Listing created from uploaded product image."
+    return EbayDraftPrefillService._resolve_listing_description(analysis, fallback)
 
 
 def _resolve_ebay_price_and_currency(analysis: dict[str, Any]) -> tuple[float, str]:
-    raw_price = analysis.get("price_estimate") or {}
-    if isinstance(raw_price, dict):
-        low = raw_price.get("low")
-        high = raw_price.get("high")
-        currency = str(raw_price.get("currency") or "USD").strip() or "USD"
-        low_num = float(low) if isinstance(low, (int, float)) and low > 0 else 0.0
-        high_num = float(high) if isinstance(high, (int, float)) and high > 0 else 0.0
-        if low_num > 0 and high_num > 0:
-            return round((low_num + high_num) / 2.0, 2), currency
-        if high_num > 0:
-            return round(high_num, 2), currency
-        if low_num > 0:
-            return round(low_num, 2), currency
-    return 19.99, "USD"
+    return EbayDraftPrefillService._resolve_price_and_currency(analysis)
 
 
 def _resolve_ebay_condition(analysis: dict[str, Any]) -> str:
-    normalized = str(analysis.get("condition_estimate") or "").strip().lower()
-    mapping = {
-        "new": "NEW",
-        "like new": "USED_EXCELLENT",
-        "excellent": "USED_EXCELLENT",
-        "very good": "USED_VERY_GOOD",
-        "good": "USED_GOOD",
-        "fair": "USED_ACCEPTABLE",
-        "used": "USED_GOOD",
-    }
-    return mapping.get(normalized, "USED_GOOD")
+    return EbayDraftPrefillService._resolve_condition(analysis)
 
 
 # Ordered from least to most desirable so we can upgrade when needed.
@@ -454,33 +410,25 @@ _CONDITION_UPGRADE_ORDER = [
 
 def _pick_condition(desired: str, valid_conditions: list[str]) -> str:
     """Return the closest valid condition to `desired`, upgrading when necessary."""
-    if not valid_conditions:
-        return desired
-    valid = set(valid_conditions)
-    if desired in valid:
-        return desired
-    try:
-        idx = _CONDITION_UPGRADE_ORDER.index(desired)
-    except ValueError:
-        return valid_conditions[0]
-    # Try upgrading (better condition) first, then downgrading as last resort.
-    for cond in _CONDITION_UPGRADE_ORDER[idx + 1 :]:
-        if cond in valid:
-            return cond
-    for cond in reversed(_CONDITION_UPGRADE_ORDER[:idx]):
-        if cond in valid:
-            return cond
-    return valid_conditions[0]
+    return EbayDraftPrefillService._pick_condition(desired, valid_conditions)
 
 
 def _resolve_ebay_category_id(
     analysis: dict[str, Any], fallback: str, *, client: EbayClient, marketplace_id: str
 ) -> str:
-    query = str(analysis.get("product_name") or "").strip() or fallback
-    suggestions = client.get_category_suggestions(query, marketplace_id=marketplace_id)
-    if not suggestions:
-        raise RuntimeError(f"no eBay category suggestions returned for query {query!r}")
-    return suggestions[0].category_id
+    service = EbayDraftPrefillService(
+        settings=CloudSettings(
+            gcp_project_id=None,
+            gcs_bucket=None,
+            gcs_images_bucket=None,
+            firestore_database_id="(default)",
+            gemini_model="gemini-2.0-flash",
+            vertex_location="us-central1",
+            ebay_marketplace_id=marketplace_id,
+        ),
+        ebay_client=client,
+    )
+    return service._resolve_category_id(analysis, fallback)
 
 
 def _build_public_image_urls(image_urls: list[str], *, public_base: str, images_bucket: str | None) -> list[str]:
@@ -496,56 +444,12 @@ def _suggest_item_specifics(
     gemini_client: GeminiClient,
 ) -> dict[str, list[str]]:
     """Use Gemini to suggest values for the given eBay item aspects."""
-    names_with_values: list[tuple[str, list[str]]] = []
-    for aspect in aspects:
-        name = str(aspect.get("localizedAspectName") or "").strip()
-        if not name:
-            continue
-        allowed = [
-            str(v.get("localizedValue") or "") for v in (aspect.get("aspectValues") or []) if v.get("localizedValue")
-        ]
-        names_with_values.append((name, allowed[:15]))
-
-    if not names_with_values:
-        return {}
-
-    product_info = "\n".join(
-        f"{k}: {v}"
-        for k, v in [
-            ("Product", analysis.get("product_name", "")),
-            ("Brand", analysis.get("brand", "")),
-            ("Model", analysis.get("model", "")),
-            ("Category", analysis.get("category", "")),
-            ("Condition", analysis.get("condition_estimate", "")),
-            ("Visible text", ", ".join(analysis.get("visible_text") or [])),
-        ]
-        if v
+    return EbayDraftPrefillService._suggest_missing_item_specifics(
+        analysis=analysis,
+        product_description="",
+        aspects=aspects,
+        gemini_client=gemini_client,
     )
-    aspects_spec = "\n".join(
-        f'- "{name}": {("allowed: " + ", ".join(vals)) if vals else "(any string)"}' for name, vals in names_with_values
-    )
-    prompt = (
-        "You are filling out required eBay item specifics for a product listing.\n\n"
-        f"Product information:\n{product_info}\n\n"
-        f"Required aspects:\n{aspects_spec}\n\n"
-        "Return ONLY a valid JSON object. Keys are the exact aspect names above. "
-        'Each value is a single-element array with the best matching string, or [""] '
-        "if you cannot determine it. Example: "
-        '{"Brand": ["Apple"], "Color": ["White"], "Connectivity": ["Bluetooth"]}\n\nJSON:"'
-    )
-    raw = gemini_client.generate_text(prompt)
-    try:
-        match = re.search(r"\{[^{}]+\}", raw, re.DOTALL)
-        data = json.loads(match.group() if match else raw.strip())
-        result: dict[str, list[str]] = {}
-        for k, v in data.items():
-            if isinstance(v, list):
-                result[str(k)] = [str(x) for x in v]
-            elif isinstance(v, str):
-                result[str(k)] = [v]
-        return result
-    except Exception:  # noqa: BLE001
-        return {name: [""] for name, _ in names_with_values}
 
 
 def _build_ebay_draft(
@@ -556,50 +460,11 @@ def _build_ebay_draft(
     settings: CloudSettings,
 ) -> dict[str, Any]:
     """Build an eBay listing draft from LLM analysis without making any seller API calls."""
-    client = _get_ebay_client(settings)
-    title = _resolve_ebay_listing_title(analysis, fallback=post.description or post.name)
-    description = _resolve_ebay_listing_description(analysis, fallback=post.description)
-    price_value, currency = _resolve_ebay_price_and_currency(analysis)
-    category_id = _resolve_ebay_category_id(
-        analysis, post.description, client=client, marketplace_id=settings.ebay_marketplace_id
+    service = EbayDraftPrefillService(
+        settings=settings,
+        ebay_client=_get_ebay_client(settings),
     )
-    desired_condition = _resolve_ebay_condition(analysis)
-    valid_conditions = client.get_valid_conditions(category_id, marketplace_id=settings.ebay_marketplace_id)
-    condition = _pick_condition(desired_condition, valid_conditions)
-
-    aspects = client.get_item_aspects_for_category(category_id)
-    required_aspects = [a for a in aspects if (a.get("aspectConstraint") or {}).get("aspectRequired")]
-
-    # Seed brand/model from analysis so they're available even if Gemini fails.
-    base_specifics: dict[str, list[str]] = {}
-    brand_val = str(analysis.get("brand") or "").strip()
-    model_val = str(analysis.get("model") or "").strip()
-    if brand_val:
-        base_specifics["Brand"] = [brand_val]
-    if model_val:
-        base_specifics["Model"] = [model_val]
-
-    try:
-        gemini_client = GeminiClient.from_settings(settings)
-        gemini_specifics = _suggest_item_specifics(analysis, required_aspects, gemini_client)
-        item_specifics = {**base_specifics, **gemini_specifics}
-    except Exception as exc:  # noqa: BLE001
-        log.warning("gemini aspect suggestion failed: %s", exc)
-        item_specifics = {
-            **base_specifics,
-            **{str(a.get("localizedAspectName") or ""): [""] for a in required_aspects if a.get("localizedAspectName")},
-        }
-
-    return {
-        "user_id": user_id,
-        "category_id": category_id,
-        "title": title,
-        "description": description,
-        "condition": condition,
-        "price": price_value,
-        "currency": currency,
-        "item_specifics": item_specifics,
-    }
+    return service.build_draft(post=post, analysis=analysis, user_id=user_id)
 
 
 def _publish_ebay_from_draft(
@@ -675,24 +540,22 @@ def _publish_ebay_from_draft(
         token.access_token,
         {"availability": {"shipToLocationAvailability": {"quantity": 1}}, "condition": condition, "product": product},
     )
-    offer_id = client.create_offer(
-        token.access_token,
-        {
-            "sku": sku,
-            "marketplaceId": settings.ebay_marketplace_id,
-            "format": "FIXED_PRICE",
-            "availableQuantity": 1,
-            "categoryId": category_id,
-            "merchantLocationKey": merchant_location_key,
-            "pricingSummary": {"price": {"value": f"{price_value:.2f}", "currency": currency}},
-            "listingDescription": listing_description,
-            "listingPolicies": {
-                "fulfillmentPolicyId": fulfillment_policies[0].policy_id,
-                "paymentPolicyId": payment_policies[0].policy_id,
-                "returnPolicyId": return_policies[0].policy_id,
-            },
+    offer_payload: dict[str, Any] = {
+        "sku": sku,
+        "marketplaceId": settings.ebay_marketplace_id,
+        "format": "FIXED_PRICE",
+        "availableQuantity": 1,
+        "categoryId": category_id,
+        "merchantLocationKey": merchant_location_key,
+        "pricingSummary": {"price": {"value": f"{price_value:.2f}", "currency": currency}},
+        "listingDescription": listing_description,
+        "listingPolicies": {
+            "fulfillmentPolicyId": fulfillment_policies[0].policy_id,
+            "paymentPolicyId": payment_policies[0].policy_id,
+            "returnPolicyId": return_policies[0].policy_id,
         },
-    )
+    }
+    offer_id = client.create_offer(token.access_token, offer_payload)
     publish_body = client.publish_offer(offer_id, token.access_token)
     offer_body = client.get_offer(offer_id, token.access_token)
     listing_id = str(
@@ -709,6 +572,20 @@ def _publish_ebay_from_draft(
         or publish_body.get("status")
         or "published"
     )
+
+    # Best-effort: update the published listing description to include a back-link
+    # to the originating post in our app, so buyers can find it again.
+    post_url = f"{public_base.rstrip('/')}/posts/{post.id}"
+    description_with_link = f"{listing_description}\n\n---\nSee the original listing: {post_url}"
+    try:
+        client.update_offer(
+            offer_id,
+            token.access_token,
+            {**offer_payload, "listingDescription": description_with_link},
+        )
+    except Exception as exc:  # noqa: BLE001
+        log.warning("could not back-link post %s on eBay offer %s: %s", post.id, offer_id, exc)
+
     return Listing(
         id=listing_id,
         marketplace_url=marketplace_url,
@@ -733,6 +610,85 @@ app.add_middleware(
 )
 
 if os.environ.get("E2E_TEST") == "1":
+    class _E2EImageStorage:
+        def __init__(self, bucket_name: str = "mlops-images") -> None:
+            self.bucket_name = bucket_name
+            self._objects: dict[str, tuple[bytes, str]] = {}
+
+        def upload_bytes(self, object_name: str, data: bytes, *, content_type: str) -> None:
+            self._objects[object_name] = (data, content_type)
+
+        def exists(self, object_name: str) -> bool:
+            return object_name in self._objects
+
+        def download_bytes(self, object_name: str) -> bytes:
+            return self._objects[object_name][0]
+
+    class _E2EConfiguredAnalyzer:
+        async def analyze_product_image_bytes(
+            self,
+            image_bytes: bytes,
+            mime_type: str,
+            *,
+            filename: str | None = None,
+            price_estimator: Any | None = None,
+        ):
+            from product_analyzer.schema import AnalyzeProductImageResponse, PriceEstimate
+
+            return AnalyzeProductImageResponse(
+                product_name="Apple AirPods Pro",
+                brand="Apple",
+                model="AirPods Pro",
+                category="Earbud Headphones",
+                condition_estimate="good",
+                visible_text=["Apple", "AirPods Pro"],
+                confidence=0.96,
+                price_estimate=PriceEstimate(
+                    low=110,
+                    high=160,
+                    currency="USD",
+                    reasoning="Estimated from comparable products",
+                    comparable_sources=[],
+                ),
+            )
+
+    class _E2EConfiguredEbayClient:
+        def __init__(self) -> None:
+            self._sandbox = False
+
+        def get_category_suggestions(self, query: str, *, marketplace_id: str | None = None):
+            return [
+                type(
+                    "CategorySuggestion",
+                    (),
+                    {
+                        "category_id": "9355",
+                        "category_name": "Headphones",
+                        "category_tree_id": "0",
+                        "category_tree_version": None,
+                        "path": ["Electronics", "Portable Audio"],
+                    },
+                )()
+            ]
+
+        def get_valid_conditions(self, category_id: str, *, marketplace_id: str | None = None):
+            return ["NEW", "USED_EXCELLENT", "USED_GOOD"]
+
+        def get_item_aspects_for_category(self, category_id: str, *, category_tree_id: str | None = None):
+            return [
+                {"localizedAspectName": "Brand", "aspectConstraint": {"aspectRequired": True}},
+                {"localizedAspectName": "Model", "aspectConstraint": {"aspectRequired": True}},
+                {
+                    "localizedAspectName": "Color",
+                    "aspectConstraint": {"aspectRequired": True},
+                    "aspectValues": [{"localizedValue": "White"}, {"localizedValue": "Black"}],
+                },
+                {
+                    "localizedAspectName": "Connectivity",
+                    "aspectConstraint": {"aspectRequired": True},
+                    "aspectValues": [{"localizedValue": "Bluetooth"}, {"localizedValue": "Wired"}],
+                },
+            ]
 
     class _E2EListingSeed(BaseModel):
         id: str
@@ -755,6 +711,17 @@ if os.environ.get("E2E_TEST") == "1":
         if app_state.get("mongo_client") is not None:
             return {"ok": False, "reason": "not supported with MongoDB"}
         app_state["post_repository"] = InMemoryPostRepository()
+        app_state["images_storage"] = None
+        app_state["product_analyzer"] = ProductAnalyzer()
+        app_state["ebay_client"] = None
+        return {"ok": True}
+
+    @app.post("/__e2e__/configure-airpods-upload")
+    def e2e_configure_airpods_upload() -> dict[str, bool]:
+        """Install test doubles so Playwright can exercise the real upload UI flow."""
+        app_state["images_storage"] = _E2EImageStorage()
+        app_state["product_analyzer"] = _E2EConfiguredAnalyzer()
+        app_state["ebay_client"] = _E2EConfiguredEbayClient()
         return {"ok": True}
 
     @app.post("/__e2e__/seed-post")

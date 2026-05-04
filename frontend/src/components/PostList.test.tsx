@@ -78,6 +78,42 @@ describe('PostList', () => {
     expect(client.fetchPosts).toHaveBeenCalledTimes(2)
   })
 
+  it('shows a spinner while creating a post from the dialog', async () => {
+    const user = userEvent.setup()
+    let resolveCreate: ((value: Post) => void) | null = null
+    const created = post({ id: 'n2', name: 'p-def', description: 'Slow upload' })
+
+    vi.mocked(client.fetchPosts)
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([created])
+    vi.mocked(client.createPostWithImage).mockImplementation(
+      () =>
+        new Promise<Post>((resolve) => {
+          resolveCreate = resolve
+        }),
+    )
+
+    render(<PostList />)
+    await waitFor(() => screen.getByTestId('posts-empty'))
+
+    await user.click(screen.getByTestId('post-new-open'))
+    await user.type(screen.getByTestId('post-create-description'), 'Slow upload')
+    const file = new File([new Uint8Array([1, 2, 3])], 'slow.png', {
+      type: 'image/png',
+    })
+    await user.upload(screen.getByTestId('post-create-image'), file)
+    await user.click(screen.getByTestId('post-create-submit'))
+
+    expect(screen.getByTestId('post-create-submit-loading')).toBeInTheDocument()
+    expect(screen.getByTestId('post-create-submit')).toBeDisabled()
+
+    resolveCreate?.(created)
+
+    await waitFor(() => {
+      expect(screen.queryByTestId('post-create-submit-loading')).toBeNull()
+    })
+  })
+
   it('updates a post and reloads the list', async () => {
     const user = userEvent.setup()
     const initial = post({ id: 'id-1', name: 'Before' })
