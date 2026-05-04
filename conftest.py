@@ -2,6 +2,7 @@ import sys
 from pathlib import Path
 
 import pytest
+from docker.errors import DockerException
 from testcontainers.mongodb import MongoDbContainer
 
 sys.path.insert(0, str(Path(__file__).parent))
@@ -47,5 +48,5 @@ def mongo_container() -> MongoDbContainer:
     try:
         with MongoDbContainer("mongo:7") as mongo:
             yield mongo
-    except Exception as exc:  # noqa: BLE001
+    except DockerException as exc:
         pytest.skip(f"Docker unavailable for Mongo integration tests: {exc}")

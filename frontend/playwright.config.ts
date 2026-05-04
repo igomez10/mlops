@@ -10,7 +10,6 @@ import {
 
 const frontendRoot = path.dirname(fileURLToPath(import.meta.url))
 const repoRoot = path.join(frontendRoot, '..')
-const backendPython = path.join(repoRoot, '.venv', 'bin', 'python')
 
 export default defineConfig({
   testDir: 'e2e',
@@ -27,7 +26,7 @@ export default defineConfig({
   projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
   webServer: [
     {
-      command: `${backendPython} -m uvicorn server:app --host 127.0.0.1 --port ${PLAYWRIGHT_API_PORT}`,
+      command: `uv run python -m uvicorn server:app --host 127.0.0.1 --port ${PLAYWRIGHT_API_PORT}`,
       cwd: repoRoot,
       env: {
         ...process.env,

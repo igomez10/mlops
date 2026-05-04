@@ -432,12 +432,14 @@ def test_resolve_ebay_category_id_raises_when_no_suggestions():
 
 
 def test_pick_condition_returns_desired_when_valid():
-    assert EbayDraftPrefillService._pick_condition("USED_GOOD", ["NEW", "USED_GOOD", "USED_EXCELLENT"]) == "USED_GOOD"
+    result = EbayDraftPrefillService._pick_condition("USED_GOOD", ["NEW", "USED_GOOD", "USED_EXCELLENT"])
+    assert result == "USED_GOOD"
 
 
 def test_pick_condition_upgrades_when_desired_not_available():
     # USED_GOOD not available — should upgrade to USED_EXCELLENT
-    assert EbayDraftPrefillService._pick_condition("USED_GOOD", ["NEW", "USED_EXCELLENT"]) == "USED_EXCELLENT"
+    result = EbayDraftPrefillService._pick_condition("USED_GOOD", ["NEW", "USED_EXCELLENT"])
+    assert result == "USED_EXCELLENT"
 
 
 def test_pick_condition_upgrades_to_new_as_last_resort():
@@ -450,7 +452,8 @@ def test_pick_condition_downgrades_when_no_better_option():
 
 
 def test_pick_condition_returns_first_valid_for_unknown_desired():
-    assert EbayDraftPrefillService._pick_condition("SOME_UNKNOWN", ["USED_GOOD", "NEW"]) == "USED_GOOD"
+    result = EbayDraftPrefillService._pick_condition("SOME_UNKNOWN", ["USED_GOOD", "NEW"])
+    assert result == "USED_GOOD"
 
 
 def test_pick_condition_returns_desired_when_no_valid_list():

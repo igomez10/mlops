@@ -55,7 +55,7 @@ Useful URLs:
 Python tests:
 
 ```bash
-uv run pytest -q -k "not live and not sandbox"
+uv run pytest -q -m "not live and not sandbox"
 ```
 
 Frontend unit tests:
