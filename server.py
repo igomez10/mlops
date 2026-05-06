@@ -47,7 +47,6 @@ from pkg.logging_context import (
     REQUEST_ID_HEADER,
     configure_logging,
     get_logger,
-    get_request_id,
     new_request_id,
     reset_request_id,
     set_request_id,
