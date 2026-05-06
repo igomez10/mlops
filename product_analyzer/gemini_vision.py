@@ -6,7 +6,11 @@ from typing import Any, Protocol
 from google import genai
 from google.genai import types
 
+from pkg.logging_context import get_logger
+
 from .prompt import PROMPT
+
+log = get_logger(__name__)
 
 # JSON schema mirrors schema.py so Gemini returns exactly this shape.
 _RESPONSE_JSON_SCHEMA: dict[str, Any] = {
@@ -117,6 +121,7 @@ def call_gemini(
     """
     gen_client = client or _build_client()
     model_name = model or _default_model()
+    log.info("gemini_vision.call_gemini model=%s mime=%s size_bytes=%d", model_name, mime_type, len(image_bytes))
 
     contents = [
         types.Content(

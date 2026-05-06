@@ -4,8 +4,12 @@ from typing import TYPE_CHECKING
 
 from google.cloud import storage  # type: ignore[attr-defined]
 
+from pkg.logging_context import get_logger
+
 if TYPE_CHECKING:
     from pkg.config import CloudSettings
+
+log = get_logger(__name__)
 
 
 class GoogleCloudStorage:
@@ -43,19 +47,29 @@ class GoogleCloudStorage:
         *,
         content_type: str | None = None,
     ) -> str:
+        log.info(
+            "gcs.upload_bytes bucket=%s object=%s size_bytes=%d content_type=%s",
+            self._bucket_name,
+            object_name,
+            len(data),
+            content_type,
+        )
         blob = self._bucket.blob(object_name.lstrip("/"))
         blob.upload_from_string(data, content_type=content_type)
         return self.blob_path(object_name)
 
     def download_bytes(self, object_name: str) -> bytes:
+        log.info("gcs.download_bytes bucket=%s object=%s", self._bucket_name, object_name)
         blob = self._bucket.blob(object_name.lstrip("/"))
         return blob.download_as_bytes()
 
     def exists(self, object_name: str) -> bool:
+        log.info("gcs.exists bucket=%s object=%s", self._bucket_name, object_name)
         blob = self._bucket.blob(object_name.lstrip("/"))
         return bool(blob.exists())
 
     def delete(self, object_name: str) -> None:
+        log.info("gcs.delete bucket=%s object=%s", self._bucket_name, object_name)
         blob = self._bucket.blob(object_name.lstrip("/"))
         blob.delete()
 
