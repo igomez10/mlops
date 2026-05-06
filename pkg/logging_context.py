@@ -67,16 +67,16 @@ def configure_logging(level: int | str | None = None) -> None:
     request_id_filter = RequestIdFilter()
 
     if not root.handlers:
-        handler = logging.StreamHandler()
-        handler.setFormatter(logging.Formatter(_DEFAULT_FORMAT))
-        handler.addFilter(request_id_filter)
-        root.addHandler(handler)
+        stream_handler = logging.StreamHandler()
+        stream_handler.setFormatter(logging.Formatter(_DEFAULT_FORMAT))
+        stream_handler.addFilter(request_id_filter)
+        root.addHandler(stream_handler)
     else:
-        for handler in root.handlers:
-            if not any(isinstance(f, RequestIdFilter) for f in handler.filters):
-                handler.addFilter(request_id_filter)
-            if handler.formatter is None:
-                handler.setFormatter(logging.Formatter(_DEFAULT_FORMAT))
+        for existing in root.handlers:
+            if not any(isinstance(f, RequestIdFilter) for f in existing.filters):
+                existing.addFilter(request_id_filter)
+            if existing.formatter is None:
+                existing.setFormatter(logging.Formatter(_DEFAULT_FORMAT))
 
     # Uvicorn pre-configures its own loggers; make them inherit our handler
     # so request_id appears in access logs too.
