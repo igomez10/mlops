@@ -6,11 +6,15 @@ from typing import TYPE_CHECKING, Any
 from google.cloud import firestore
 from google.cloud.firestore_v1.base_query import FieldFilter
 
+from pkg.logging_context import get_logger
+
 if TYPE_CHECKING:
     from pkg.config import CloudSettings
 
 _DEFAULT_FIND_LIMIT = 100
 _MAX_FIND_LIMIT = 500
+
+log = get_logger(__name__)
 
 
 @dataclass(frozen=True)
@@ -44,21 +48,29 @@ class FirestoreMongoCollection:
     def __init__(self, collection: firestore.CollectionReference) -> None:
         self._coll = collection
 
+    @property
+    def _coll_name(self) -> str:
+        return getattr(self._coll, "id", "<unknown>")
+
     def create_index(self, *args: Any, **kwargs: Any) -> str:
         """No-op shim so repositories can reuse MongoDB-oriented startup code."""
         return "firestore-noop-index"
 
     def insert_one(self, document: dict[str, Any]) -> InsertOneResult:
+        log.info("firestore.insert_one collection=%s", self._coll_name)
         doc = dict(document)
         doc_id = doc.pop("_id", None)
         if doc_id is not None:
             doc_id_s = _normalize_id(doc_id)
             self._coll.document(doc_id_s).set(doc)
+            log.info("firestore.insert_one ok collection=%s doc_id=%s", self._coll_name, doc_id_s)
             return InsertOneResult(inserted_id=doc_id_s)
         _, ref = self._coll.add(doc)
+        log.info("firestore.insert_one ok collection=%s doc_id=%s", self._coll_name, ref.id)
         return InsertOneResult(inserted_id=ref.id)
 
     def find_one(self, filter: dict[str, Any]) -> dict[str, Any] | None:  # noqa: A002
+        log.info("firestore.find_one collection=%s filter_keys=%s", self._coll_name, list(filter.keys()))
         if "_id" in filter:
             if len(filter) != 1:
                 raise ValueError("When filtering by _id, no other fields may be present")
@@ -80,6 +92,12 @@ class FirestoreMongoCollection:
         *,
         limit: int = _DEFAULT_FIND_LIMIT,
     ) -> list[dict[str, Any]]:
+        log.info(
+            "firestore.find collection=%s filter_keys=%s limit=%d",
+            self._coll_name,
+            list((filter or {}).keys()),
+            limit,
+        )
         if limit <= 0:
             raise ValueError("limit must be positive")
         if limit > _MAX_FIND_LIMIT:
@@ -102,6 +120,12 @@ class FirestoreMongoCollection:
         filter: dict[str, Any],  # noqa: A002
         update: dict[str, Any],
     ) -> UpdateResult:
+        log.info(
+            "firestore.update_one collection=%s filter_keys=%s update_keys=%s",
+            self._coll_name,
+            list(filter.keys()),
+            list(update.keys()),
+        )
         if "$set" in update:
             payload = update["$set"]
             if not isinstance(payload, dict):
@@ -120,6 +144,7 @@ class FirestoreMongoCollection:
         return UpdateResult(matched_count=1, modified_count=1)
 
     def delete_one(self, filter: dict[str, Any]) -> DeleteResult:  # noqa: A002
+        log.info("firestore.delete_one collection=%s filter_keys=%s", self._coll_name, list(filter.keys()))
         existing = self.find_one(filter)
         if existing is None:
             return DeleteResult(deleted_count=0)
@@ -141,4 +166,5 @@ class FirestoreMongoDatabase:
         return cls(firestore.Client(**kwargs))
 
     def collection(self, name: str) -> FirestoreMongoCollection:
+        log.info("firestore.collection name=%s", name)
         return FirestoreMongoCollection(self._client.collection(name))

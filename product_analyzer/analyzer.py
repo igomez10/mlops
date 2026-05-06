@@ -5,6 +5,8 @@ from collections.abc import Callable
 
 from fastapi import HTTPException, UploadFile
 
+from pkg.logging_context import get_logger
+
 from .encoding import image_to_base64
 from .evaluation import evaluate
 from .gemini_vision import _default_model, call_gemini
@@ -14,6 +16,8 @@ from .prompt import PROMPT
 from .schema import AnalyzeProductImageResponse
 from .tracking import prompt_hash, start_span, track_run
 from .validation import validate_image
+
+log = get_logger(__name__)
 
 
 class ProductAnalyzer:
@@ -35,6 +39,11 @@ class ProductAnalyzer:
         price_estimator: PriceEstimator | None = None,
     ) -> AnalyzeProductImageResponse:
         """End-to-end: UploadFile -> validated bytes -> Gemini -> parsed response."""
+        log.info(
+            "ProductAnalyzer.analyze_product_image filename=%s content_type=%s",
+            upload.filename,
+            upload.content_type,
+        )
         data, mime = await validate_image(upload)
         return await self.analyze_product_image_bytes(
             data,
@@ -52,6 +61,12 @@ class ProductAnalyzer:
         price_estimator: PriceEstimator | None = None,
     ) -> AnalyzeProductImageResponse:
         """Analyze callers' already-loaded image bytes."""
+        log.info(
+            "ProductAnalyzer.analyze_product_image_bytes mime=%s size_bytes=%d filename=%s",
+            mime_type,
+            len(image_bytes),
+            filename,
+        )
         data = image_bytes
         mime = mime_type
         _ = image_to_base64(data)

@@ -4,6 +4,10 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Protocol, runtime_checkable
 
+from pkg.logging_context import get_logger
+
+log = get_logger(__name__)
+
 
 def _ensure_utc(dt: datetime) -> datetime:
     if dt.tzinfo is None:
@@ -38,9 +42,11 @@ class InMemoryEbayTokenRepository:
         self._by_user_id: dict[str, EbayUserToken] = {}
 
     def get_by_user_id(self, user_id: str) -> EbayUserToken | None:
+        log.info("InMemoryEbayTokenRepository.get_by_user_id user_id=%s", user_id)
         return self._by_user_id.get(user_id)
 
     def upsert(self, token: EbayUserToken) -> EbayUserToken:
+        log.info("InMemoryEbayTokenRepository.upsert user_id=%s", token.user_id)
         self._by_user_id[token.user_id] = token
         return token
 
@@ -70,10 +76,12 @@ class MongoEbayTokenRepository:
             create_index("user_id", unique=True)
 
     def get_by_user_id(self, user_id: str) -> EbayUserToken | None:
+        log.info("MongoEbayTokenRepository.get_by_user_id user_id=%s", user_id)
         doc = self._coll.find_one({"user_id": user_id})
         return _doc_to_token(doc) if doc is not None else None
 
     def upsert(self, token: EbayUserToken) -> EbayUserToken:
+        log.info("MongoEbayTokenRepository.upsert user_id=%s", token.user_id)
         doc = {
             "_id": token.user_id,
             "user_id": token.user_id,

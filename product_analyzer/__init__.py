@@ -4,11 +4,15 @@ from functools import lru_cache
 
 from fastapi import UploadFile
 
+from pkg.logging_context import get_logger
+
 from .analyzer import ProductAnalyzer
 from .gemini_vision import call_gemini
 from .pricing import PriceEstimator
 from .schema import AnalyzeProductImageResponse, PriceEstimate
 from .validation import validate_image
+
+log = get_logger(__name__)
 
 
 @lru_cache(maxsize=1)
@@ -21,6 +25,11 @@ async def analyze_product_image(
     *,
     price_estimator: PriceEstimator | None = None,
 ) -> AnalyzeProductImageResponse:
+    log.info(
+        "product_analyzer.analyze_product_image filename=%s content_type=%s",
+        upload.filename,
+        upload.content_type,
+    )
     data, mime = await validate_image(upload)
     return await analyze_product_image_bytes(
         data,
@@ -37,6 +46,12 @@ async def analyze_product_image_bytes(
     filename: str | None = None,
     price_estimator: PriceEstimator | None = None,
 ) -> AnalyzeProductImageResponse:
+    log.info(
+        "product_analyzer.analyze_product_image_bytes mime=%s size_bytes=%d filename=%s",
+        mime_type,
+        len(image_bytes),
+        filename,
+    )
     return await get_default_product_analyzer().analyze_product_image_bytes(
         image_bytes,
         mime_type,

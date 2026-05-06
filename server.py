@@ -43,15 +43,26 @@ from pkg.ebay import DEFAULT_USER_SCOPES, EbayClient
 from pkg.ebay_listing_prefill import EbayDraftPrefillService
 from pkg.gcs import api_absolute_url_for_object_key, normalize_stored_to_object_key  # noqa: E402
 from pkg.gemini import GeminiClient
+from pkg.logging_context import (
+    REQUEST_ID_HEADER,
+    configure_logging,
+    get_logger,
+    new_request_id,
+    reset_request_id,
+    set_request_id,
+)
 from pkg.posts import InMemoryPostRepository, Listing, MongoPostRepository, Post, PostRepository  # noqa: E402
 from product_analyzer import ProductAnalyzer  # noqa: E402
 
 # from PIL import Image
 # from transformers import pipeline
 
+configure_logging()
+
 app_state: dict[str, Any] = {}
-log = logging.getLogger(__name__)
-logger = logging.getLogger(__name__)
+log = get_logger(__name__)
+logger = log
+_raw_logger = logging.getLogger(__name__)
 
 
 _SEED_POSTS = [
@@ -180,6 +191,7 @@ def _ebay_state_secret(settings: CloudSettings) -> str:
 
 
 def _make_ebay_state(user_id: str, settings: CloudSettings) -> str:
+    log.info("controller._make_ebay_state user_id=%s", user_id)
     payload = {
         "user_id": user_id,
         "nonce": uuid.uuid4().hex,
@@ -194,6 +206,7 @@ def _make_ebay_state(user_id: str, settings: CloudSettings) -> str:
 
 
 def _parse_ebay_state(state: str, settings: CloudSettings) -> str:
+    log.info("controller._parse_ebay_state")
     try:
         encoded_payload, signature = state.rsplit(".", 1)
     except ValueError as exc:
@@ -272,6 +285,12 @@ def _store_ebay_callback(
     error_description: str | None,
     repo: EbayTokenRepository,
 ) -> EbayCallbackResponse:
+    log.info(
+        "controller._store_ebay_callback code_present=%s state_present=%s error_present=%s",
+        bool(code),
+        bool(state),
+        bool(error),
+    )
     settings = app_state["cloud_settings"]
     if error:
         detail = error_description or error
@@ -334,6 +353,7 @@ def _get_valid_ebay_user_token(
     repo: EbayTokenRepository,
     client: EbayClient,
 ) -> EbayUserToken:
+    log.info("controller._get_valid_ebay_user_token user_id=%s", user_id)
     token = repo.get_by_user_id(user_id)
     if token is None:
         raise HTTPException(status_code=404, detail="ebay token not found")
@@ -374,18 +394,22 @@ def _get_valid_ebay_user_token(
 
 
 def _resolve_ebay_listing_title(analysis: dict[str, Any], fallback: str) -> str:
+    log.info("controller._resolve_ebay_listing_title fallback=%s", fallback)
     return EbayDraftPrefillService._resolve_listing_title(analysis, fallback)
 
 
 def _resolve_ebay_listing_description(analysis: dict[str, Any], fallback: str) -> str:
+    log.info("controller._resolve_ebay_listing_description")
     return EbayDraftPrefillService._resolve_listing_description(analysis, fallback)
 
 
 def _resolve_ebay_price_and_currency(analysis: dict[str, Any]) -> tuple[float, str]:
+    log.info("controller._resolve_ebay_price_and_currency")
     return EbayDraftPrefillService._resolve_price_and_currency(analysis)
 
 
 def _resolve_ebay_condition(analysis: dict[str, Any]) -> str:
+    log.info("controller._resolve_ebay_condition")
     return EbayDraftPrefillService._resolve_condition(analysis)
 
 
@@ -410,12 +434,14 @@ _CONDITION_UPGRADE_ORDER = [
 
 def _pick_condition(desired: str, valid_conditions: list[str]) -> str:
     """Return the closest valid condition to `desired`, upgrading when necessary."""
+    log.info("controller._pick_condition desired=%s valid_count=%d", desired, len(valid_conditions))
     return EbayDraftPrefillService._pick_condition(desired, valid_conditions)
 
 
 def _resolve_ebay_category_id(
     analysis: dict[str, Any], fallback: str, *, client: EbayClient, marketplace_id: str
 ) -> str:
+    log.info("controller._resolve_ebay_category_id fallback=%s marketplace=%s", fallback, marketplace_id)
     query = str(analysis.get("product_name") or "").strip() or fallback
     suggestions = client.get_category_suggestions(query, marketplace_id=marketplace_id)
     if not suggestions:
@@ -424,6 +450,7 @@ def _resolve_ebay_category_id(
 
 
 def _build_public_image_urls(image_urls: list[str], *, public_base: str, images_bucket: str | None) -> list[str]:
+    log.info("controller._build_public_image_urls count=%d", len(image_urls))
     return [
         api_absolute_url_for_object_key(public_base, normalize_stored_to_object_key(stored, images_bucket))
         for stored in image_urls
@@ -436,6 +463,7 @@ def _suggest_item_specifics(
     gemini_client: GeminiClient,
 ) -> dict[str, list[str]]:
     """Use Gemini to suggest values for the given eBay item aspects."""
+    log.info("controller._suggest_item_specifics aspect_count=%d", len(aspects))
     return EbayDraftPrefillService._suggest_missing_item_specifics(
         analysis=analysis,
         product_description="",
@@ -452,6 +480,7 @@ def _build_ebay_draft(
     settings: CloudSettings,
 ) -> dict[str, Any]:
     """Build an eBay listing draft from LLM analysis without making any seller API calls."""
+    log.info("controller._build_ebay_draft post_id=%s user_id=%s", post.id, user_id)
     service = EbayDraftPrefillService(
         settings=settings,
         ebay_client=_get_ebay_client(settings),
@@ -468,6 +497,7 @@ def _publish_ebay_from_draft(
     repo: EbayTokenRepository,
 ) -> Listing:
     """Create and publish an eBay listing using a stored draft."""
+    log.info("controller._publish_ebay_from_draft post_id=%s", post.id)
     user_id = str(draft.get("user_id") or "")
     if not user_id:
         raise ValueError("draft is missing user_id")
@@ -589,6 +619,42 @@ def _publish_ebay_from_draft(
 
 
 app = fastapi.FastAPI(lifespan=lifespan)
+
+
+@app.middleware("http")
+async def request_id_middleware(request: Request, call_next):
+    """Bind a request id to the context so every layer's logs can be correlated.
+
+    Honor an inbound ``X-Request-Id`` if present (so upstream proxies and
+    front-end retries can carry their own ids); otherwise mint a new one.
+    The id is echoed back in the response header for clients/tools to grab.
+    """
+    incoming = request.headers.get(REQUEST_ID_HEADER)
+    request_id = incoming.strip() if incoming and incoming.strip() else new_request_id()
+    token = set_request_id(request_id)
+    log.info(
+        "http.request.start method=%s path=%s client=%s request_id=%s",
+        request.method,
+        request.url.path,
+        request.client.host if request.client else "-",
+        request_id,
+    )
+    try:
+        response = await call_next(request)
+    except Exception:
+        log.exception("http.request.error method=%s path=%s", request.method, request.url.path)
+        reset_request_id(token)
+        raise
+    response.headers[REQUEST_ID_HEADER] = request_id
+    log.info(
+        "http.request.end method=%s path=%s status=%d",
+        request.method,
+        request.url.path,
+        response.status_code,
+    )
+    reset_request_id(token)
+    return response
+
 
 _default_cors = "http://localhost:5173,http://127.0.0.1:5173,http://localhost:5174,http://127.0.0.1:5174,http://localhost:8000,http://127.0.0.1:8000"
 _cors_origins = [o.strip() for o in os.environ.get("CORS_ORIGINS", _default_cors).split(",") if o.strip()]
@@ -753,11 +819,13 @@ if os.environ.get("E2E_TEST") == "1":
 
 @app.get("/health")
 def health() -> dict:
+    log.info("network.health")
     return {"status": "ok"}
 
 
 @app.get("/auth/ebay/authorize", response_model=EbayAuthorizeResponse)
 def ebay_authorize(user_id: str) -> EbayAuthorizeResponse:
+    log.info("network.ebay_authorize user_id=%s", user_id)
     settings = app_state["cloud_settings"]
     if not settings.ebay_runame:
         raise HTTPException(status_code=503, detail="EBAY_RUNAME not configured")
@@ -783,6 +851,12 @@ def ebay_callback(
     error_description: str | None = None,
     repo: EbayTokenRepository = Depends(get_ebay_token_repo),
 ) -> EbayCallbackResponse:
+    log.info(
+        "network.ebay_callback code_present=%s state_present=%s error_present=%s",
+        bool(code),
+        bool(state),
+        bool(error),
+    )
     return _store_ebay_callback(
         code=code,
         state=state,
@@ -797,6 +871,7 @@ def ebay_listings(
     user: str,
     repo: EbayTokenRepository = Depends(get_ebay_token_repo),
 ) -> EbayListingsResponse:
+    log.info("network.ebay_listings user=%s", user)
     token = repo.get_by_user_id(user)
     if token is None:
         raise HTTPException(status_code=404, detail="ebay token not found")
@@ -851,6 +926,11 @@ def ebay_authorization_accepted(
     error_description: str | None = None,
     repo: EbayTokenRepository = Depends(get_ebay_token_repo),
 ) -> HTMLResponse:
+    log.info(
+        "network.ebay_authorization_accepted code_present=%s state_present=%s",
+        bool(code),
+        bool(state),
+    )
     _store_ebay_callback(
         code=code,
         state=state,
@@ -869,6 +949,7 @@ def ebay_authorization_rejected(
     error_description: str | None = None,
     state: str | None = None,
 ) -> HTMLResponse:
+    log.info("network.ebay_authorization_rejected error_present=%s", bool(error))
     logger.warning(
         "ebay authorization rejected callback",
         extra={"error": error, "error_description": error_description, "state_present": bool(state)},
@@ -887,6 +968,7 @@ def http_get_post_image(
     Stream a post image from private GCS. Only objects referenced on an active
     post (and under ``posts/<post_id>/``) are served.
     """
+    log.info("network.http_get_post_image object_path=%s", object_path)
     if storage is None:
         raise HTTPException(status_code=503, detail="image storage not configured")
     if ".." in object_path or not object_path.startswith("posts/"):
@@ -1001,6 +1083,11 @@ async def _upload_image_files_to_gcs(
     bytes + MIME of the first JPEG/PNG upload (or ``None``) so the caller can
     pass it to the product analyzer without re-reading the form.
     """
+    log.info(
+        "controller._upload_image_files_to_gcs post_id=%s upload_count=%d",
+        post_id,
+        len(uploads),
+    )
     object_keys: list[str] = []
     first_supported: tuple[bytes, str] | None = None
     for upload in uploads:
@@ -1037,6 +1124,7 @@ def http_get_posts(
     include_deleted: bool = False,
     repo: PostRepository = Depends(get_post_repo),
 ) -> list[PostResponse] | PostResponse:
+    log.info("network.http_get_posts name=%s include_deleted=%s", name, include_deleted)
     base = str(request.base_url)
     bkt = _images_bucket()
     if name is not None:
@@ -1055,6 +1143,7 @@ def http_get_post(
     include_deleted: bool = False,
     repo: PostRepository = Depends(get_post_repo),
 ) -> PostResponse:
+    log.info("network.http_get_post post_id=%s include_deleted=%s", post_id, include_deleted)
     post = repo.get_by_id(post_id, include_deleted=include_deleted)
     if post is None:
         raise HTTPException(status_code=404, detail="post not found")
@@ -1070,6 +1159,7 @@ async def http_create_post(
     request: Request,
     repo: PostRepository = Depends(get_post_repo),
 ) -> PostResponse:
+    log.info("network.http_create_post content_type=%s", request.headers.get("content-type"))
     content_type = (request.headers.get("content-type") or "").lower()
     if "application/json" in content_type:
         try:
@@ -1185,6 +1275,7 @@ def http_update_ebay_draft(
     req: UpdateEbayDraftRequest,
     repo: PostRepository = Depends(get_post_repo),
 ) -> PostResponse:
+    log.info("network.http_update_ebay_draft post_id=%s", post_id)
     post = repo.get_by_id(post_id, include_deleted=False)
     if post is None:
         raise HTTPException(status_code=404, detail="post not found")
@@ -1220,6 +1311,7 @@ def http_publish_ebay_listing(
     repo: PostRepository = Depends(get_post_repo),
     token_repo: EbayTokenRepository = Depends(get_ebay_token_repo),
 ) -> PostResponse:
+    log.info("network.http_publish_ebay_listing post_id=%s", post_id)
     post = repo.get_by_id(post_id, include_deleted=False)
     if post is None:
         raise HTTPException(status_code=404, detail="post not found")
@@ -1257,6 +1349,12 @@ def http_update_post(
     req: UpdatePostRequest,
     repo: PostRepository = Depends(get_post_repo),
 ) -> PostResponse:
+    log.info(
+        "network.http_update_post post_id=%s name_present=%s description_present=%s",
+        post_id,
+        req.name is not None,
+        req.description is not None,
+    )
     try:
         post = repo.update(
             post_id,
@@ -1280,6 +1378,7 @@ def http_delete_post(
     post_id: str,
     repo: PostRepository = Depends(get_post_repo),
 ) -> PostResponse:
+    log.info("network.http_delete_post post_id=%s", post_id)
     post = repo.soft_delete(post_id)
     if post is None:
         raise HTTPException(status_code=404, detail="post not found")

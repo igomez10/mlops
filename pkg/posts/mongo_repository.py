@@ -7,12 +7,15 @@ from typing import Any
 from pymongo import ASCENDING
 from pymongo.errors import DuplicateKeyError
 
+from pkg.logging_context import get_logger
 from pkg.posts.models import Listing, Post
 from pkg.posts.repository import (
     _normalize_name,
     _synthetic_listings_for_new_post,
     _utc_now,
 )
+
+log = get_logger(__name__)
 
 
 def _ensure_utc(dt: datetime) -> datetime:
@@ -101,6 +104,7 @@ class MongoPostRepository:
         return False
 
     def get_by_id(self, post_id: str, *, include_deleted: bool = False) -> Post | None:
+        log.info("MongoPostRepository.get_by_id post_id=%s include_deleted=%s", post_id, include_deleted)
         doc = self._coll.find_one({"_id": post_id})
         if doc is None:
             return None
@@ -110,6 +114,7 @@ class MongoPostRepository:
         return post
 
     def get_by_name(self, name: str, *, include_deleted: bool = False) -> Post | None:
+        log.info("MongoPostRepository.get_by_name name=%s include_deleted=%s", name, include_deleted)
         try:
             key = _normalize_name(name)
         except ValueError:
@@ -122,6 +127,7 @@ class MongoPostRepository:
         return _doc_to_post(doc) if doc else None
 
     def list_posts(self, *, include_deleted: bool = False) -> list[Post]:
+        log.info("MongoPostRepository.list_posts include_deleted=%s", include_deleted)
         query: dict[str, Any] = {} if include_deleted else {"deleted_at": None}
         docs = self._find(query)
         docs.sort(key=lambda d: _ensure_utc(d["created_at"]))
@@ -137,6 +143,13 @@ class MongoPostRepository:
         analysis: dict | None = None,
         listings: list[Listing] | None = None,
     ) -> Post:
+        log.info(
+            "MongoPostRepository.create name=%s post_id=%s image_count=%d analysis_present=%s",
+            name,
+            post_id,
+            len(image_urls or []),
+            analysis is not None,
+        )
         key = _normalize_name(name)
         if self._has_active_name_conflict(key):
             raise ValueError(f"a post with name {key!r} already exists")
@@ -184,6 +197,12 @@ class MongoPostRepository:
         name: str | None = None,
         description: str | None = None,
     ) -> Post | None:
+        log.info(
+            "MongoPostRepository.update post_id=%s name_present=%s description_present=%s",
+            post_id,
+            name is not None,
+            description is not None,
+        )
         if self.get_by_id(post_id, include_deleted=False) is None:
             return None
         if name is None and description is None:
@@ -210,6 +229,7 @@ class MongoPostRepository:
         return _doc_to_post(doc)
 
     def soft_delete(self, post_id: str) -> Post | None:
+        log.info("MongoPostRepository.soft_delete post_id=%s", post_id)
         now = _utc_now()
         if self.get_by_id(post_id, include_deleted=False) is None:
             return None
@@ -221,6 +241,11 @@ class MongoPostRepository:
         return _doc_to_post(doc) if doc else None
 
     def replace_listings(self, post_id: str, listings: list[Listing]) -> Post | None:
+        log.info(
+            "MongoPostRepository.replace_listings post_id=%s listing_count=%d",
+            post_id,
+            len(listings),
+        )
         if self.get_by_id(post_id, include_deleted=False) is None:
             return None
         raw_listings = [
@@ -242,6 +267,11 @@ class MongoPostRepository:
         return _doc_to_post(doc) if doc else None
 
     def set_ebay_draft(self, post_id: str, draft: dict | None) -> Post | None:
+        log.info(
+            "MongoPostRepository.set_ebay_draft post_id=%s draft_present=%s",
+            post_id,
+            draft is not None,
+        )
         if self.get_by_id(post_id, include_deleted=False) is None:
             return None
         self._coll.update_one(

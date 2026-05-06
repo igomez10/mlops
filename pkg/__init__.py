@@ -5,6 +5,15 @@ from pkg.ebay_tokens import EbayTokenRepository, EbayUserToken, InMemoryEbayToke
 from pkg.firestore_mongo import FirestoreMongoDatabase
 from pkg.gcs import GoogleCloudStorage
 from pkg.gemini import GeminiClient
+from pkg.logging_context import (
+    REQUEST_ID_HEADER,
+    configure_logging,
+    get_logger,
+    get_request_id,
+    new_request_id,
+    reset_request_id,
+    set_request_id,
+)
 from pkg.posts import InMemoryPostRepository, MongoPostRepository, Post, PostRepository
 
 __all__ = [
@@ -20,4 +29,11 @@ __all__ = [
     "MongoPostRepository",
     "Post",
     "PostRepository",
+    "REQUEST_ID_HEADER",
+    "configure_logging",
+    "get_logger",
+    "get_request_id",
+    "new_request_id",
+    "reset_request_id",
+    "set_request_id",
 ]
