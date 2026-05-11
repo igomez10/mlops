@@ -35,34 +35,42 @@ locals {
       value = "firestore"
     },
     {
-      name  = "FIRESTORE_DATABASE_ID"
-      value = google_firestore_database.default.name
-    },
-    {
       name  = "CORS_ORIGINS"
       value = local.fastapi_cors_origins
-    },
-    {
-      name  = "EBAY_SANDBOX"
-      value = "true"
     },
   ]
 
   fastapi_env = concat(local.fastapi_env_common, [
     {
+      name  = "FIRESTORE_DATABASE_ID"
+      value = google_firestore_database.default.name
+    },
+    {
       name  = "PUBLIC_BASE_URL"
       value = local.fastapi_url
+    },
+    {
+      name  = "EBAY_SANDBOX"
+      value = "false"
     },
   ])
 
   fastapi_dev_env = concat(local.fastapi_env_common, [
     {
+      name  = "FIRESTORE_DATABASE_ID"
+      value = google_firestore_database.dev.name
+    },
+    {
       name  = "PUBLIC_BASE_URL"
       value = local.fastapi_dev_url
     },
+    {
+      name  = "EBAY_SANDBOX"
+      value = "true"
+    },
   ])
 
-  fastapi_secret_env = [
+  fastapi_dev_secret_env = [
     {
       name    = "EBAY_APP_ID"
       secret  = google_secret_manager_secret.fastapi_ebay_app_id.secret_id
@@ -76,6 +84,24 @@ locals {
     {
       name    = "EBAY_RUNAME"
       secret  = google_secret_manager_secret.fastapi_ebay_runame.secret_id
+      version = "latest"
+    },
+  ]
+
+  fastapi_prod_secret_env = [
+    {
+      name    = "EBAY_APP_ID"
+      secret  = google_secret_manager_secret.fastapi_prod_ebay_app_id.secret_id
+      version = "latest"
+    },
+    {
+      name    = "EBAY_CERT_ID"
+      secret  = google_secret_manager_secret.fastapi_prod_ebay_cert_id.secret_id
+      version = "latest"
+    },
+    {
+      name    = "EBAY_RUNAME"
+      secret  = google_secret_manager_secret.fastapi_prod_ebay_runame.secret_id
       version = "latest"
     },
   ]
@@ -118,6 +144,15 @@ resource "google_project_service" "aiplatform" {
 resource "google_firestore_database" "default" {
   project     = var.project_id
   name        = "(default)"
+  location_id = var.firestore_location
+  type        = "FIRESTORE_NATIVE"
+
+  depends_on = [google_project_service.firestore]
+}
+
+resource "google_firestore_database" "dev" {
+  project     = var.project_id
+  name        = "mlops-dev"
   location_id = var.firestore_location
   type        = "FIRESTORE_NATIVE"
 
@@ -307,6 +342,60 @@ resource "google_secret_manager_secret_iam_member" "fastapi_ebay_runame_accessor
   member    = "serviceAccount:${google_service_account.fastapi.email}"
 }
 
+resource "google_secret_manager_secret" "fastapi_prod_ebay_app_id" {
+  project   = var.project_id
+  secret_id = "fastapi-prod-ebay-app-id"
+
+  replication {
+    auto {}
+  }
+
+  depends_on = [google_project_service.secretmanager]
+}
+
+resource "google_secret_manager_secret" "fastapi_prod_ebay_cert_id" {
+  project   = var.project_id
+  secret_id = "fastapi-prod-ebay-cert-id"
+
+  replication {
+    auto {}
+  }
+
+  depends_on = [google_project_service.secretmanager]
+}
+
+resource "google_secret_manager_secret" "fastapi_prod_ebay_runame" {
+  project   = var.project_id
+  secret_id = "fastapi-prod-ebay-runame"
+
+  replication {
+    auto {}
+  }
+
+  depends_on = [google_project_service.secretmanager]
+}
+
+resource "google_secret_manager_secret_iam_member" "fastapi_prod_ebay_app_id_accessor" {
+  project   = var.project_id
+  secret_id = google_secret_manager_secret.fastapi_prod_ebay_app_id.secret_id
+  role      = "roles/secretmanager.secretAccessor"
+  member    = "serviceAccount:${google_service_account.fastapi.email}"
+}
+
+resource "google_secret_manager_secret_iam_member" "fastapi_prod_ebay_cert_id_accessor" {
+  project   = var.project_id
+  secret_id = google_secret_manager_secret.fastapi_prod_ebay_cert_id.secret_id
+  role      = "roles/secretmanager.secretAccessor"
+  member    = "serviceAccount:${google_service_account.fastapi.email}"
+}
+
+resource "google_secret_manager_secret_iam_member" "fastapi_prod_ebay_runame_accessor" {
+  project   = var.project_id
+  secret_id = google_secret_manager_secret.fastapi_prod_ebay_runame.secret_id
+  role      = "roles/secretmanager.secretAccessor"
+  member    = "serviceAccount:${google_service_account.fastapi.email}"
+}
+
 resource "google_project_iam_member" "fastapi_vertex_ai_user" {
   project = var.project_id
   role    = "roles/aiplatform.user"
@@ -364,7 +453,7 @@ resource "google_cloud_run_v2_service" "fastapi" {
       }
 
       dynamic "env" {
-        for_each = local.fastapi_secret_env
+        for_each = local.fastapi_prod_secret_env
         content {
           name = env.value.name
           value_source {
@@ -421,7 +510,7 @@ resource "google_cloud_run_v2_service" "fastapi_dev" {
       }
 
       dynamic "env" {
-        for_each = local.fastapi_secret_env
+        for_each = local.fastapi_dev_secret_env
         content {
           name = env.value.name
           value_source {

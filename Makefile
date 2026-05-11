@@ -13,7 +13,7 @@ DEV_MLFLOW_URL := http://127.0.0.1:$(DEV_MLFLOW_PORT)
 DEV_MONGODB_URL := mongodb://127.0.0.1:$(DEV_MONGO_PORT)
 
 COMPOSE := docker compose
-LOAD_DOTENV = if [ -f .env ]; then set -a; . ./.env; set +a; fi;
+LOAD_DOTENV = if [ -f .env ]; then set -a; . ./.envproduction; set +a; fi;
 
 GCP_REGION := us-central1
 GCP_PROJECT := mlops-492103

@@ -342,6 +342,9 @@ class _FakeEbayClient:
         self.calls.append(("get_return_policies",))
         return [SimpleNamespace(policy_id="return-1")]
 
+    def opt_in_to_program(self, user_token: str, program_type: str) -> None:
+        self.calls.append(("opt_in_to_program", program_type))
+
     def create_inventory_location(self, key: str, user_token: str, payload: dict):
         self.calls.append(("create_inventory_location",))
 
@@ -463,6 +466,7 @@ def test_e2e_post_create_user_123_publishes_ebay_listing(e2e_client: TestClient)
             pub_call_names = [c[0] for c in fake_ebay.calls]
             assert pub_call_names == [
                 "get_valid_conditions",
+                "opt_in_to_program",
                 "get_fulfillment_policies",
                 "get_payment_policies",
                 "get_return_policies",
@@ -473,6 +477,9 @@ def test_e2e_post_create_user_123_publishes_ebay_listing(e2e_client: TestClient)
                 "get_offer",
                 "update_offer",
             ]
+
+            opt_in_call = next(c for c in fake_ebay.calls if c[0] == "opt_in_to_program")
+            assert opt_in_call[1] == "SELLING_POLICY_MANAGEMENT"
 
             # Inventory item includes the post's image URL
             inv_call = next(c for c in fake_ebay.calls if c[0] == "create_or_replace_inventory_item")
