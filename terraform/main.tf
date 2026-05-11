@@ -38,10 +38,6 @@ locals {
       name  = "CORS_ORIGINS"
       value = local.fastapi_cors_origins
     },
-    {
-      name  = "EBAY_SANDBOX"
-      value = "true"
-    },
   ]
 
   fastapi_env = concat(local.fastapi_env_common, [
@@ -53,6 +49,10 @@ locals {
       name  = "PUBLIC_BASE_URL"
       value = local.fastapi_url
     },
+    {
+      name  = "EBAY_SANDBOX"
+      value = "false"
+    },
   ])
 
   fastapi_dev_env = concat(local.fastapi_env_common, [
@@ -63,6 +63,10 @@ locals {
     {
       name  = "PUBLIC_BASE_URL"
       value = local.fastapi_dev_url
+    },
+    {
+      name  = "EBAY_SANDBOX"
+      value = "true"
     },
   ])
 

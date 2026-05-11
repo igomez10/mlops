@@ -517,9 +517,54 @@ def _publish_ebay_from_draft(
     }
 
     mid = settings.ebay_marketplace_id
+    try:
+        client.opt_in_to_program(token.access_token, "SELLING_POLICY_MANAGEMENT")
+    except Exception as exc:  # noqa: BLE001
+        log.info("ebay business policies opt-in skipped (already enrolled or not applicable): %s", exc)
     fulfillment_policies = client.get_fulfillment_policies(token.access_token, marketplace_id=mid)
+    if not fulfillment_policies:
+        log.info("controller._publish_ebay_from_draft creating default fulfillment policy")
+        client.create_fulfillment_policy(token.access_token, {
+            "name": "Default Fulfillment Policy",
+            "marketplaceId": mid,
+            "categoryTypes": [{"name": "ALL_EXCLUDING_MOTORS_VEHICLES"}],
+            "handlingTime": {"unit": "DAY", "value": 1},
+            "shippingOptions": [{
+                "costType": "FLAT_RATE",
+                "optionType": "DOMESTIC",
+                "shippingServices": [{
+                    "buyerResponsibleForShipping": False,
+                    "freeShipping": True,
+                    "shippingCarrierCode": "USPS",
+                    "shippingServiceCode": "USPSPriorityFlatRateBox",
+                    "shippingCost": {"currency": "USD", "value": "0.0"},
+                }],
+            }],
+        })
+        fulfillment_policies = client.get_fulfillment_policies(token.access_token, marketplace_id=mid)
     payment_policies = client.get_payment_policies(token.access_token, marketplace_id=mid)
+    if not payment_policies:
+        log.info("controller._publish_ebay_from_draft creating default payment policy")
+        client.create_payment_policy(token.access_token, {
+            "name": "Default Payment Policy",
+            "marketplaceId": mid,
+            "categoryTypes": [{"name": "ALL_EXCLUDING_MOTORS_VEHICLES"}],
+            "immediatePay": True,
+        })
+        payment_policies = client.get_payment_policies(token.access_token, marketplace_id=mid)
     return_policies = client.get_return_policies(token.access_token, marketplace_id=mid)
+    if not return_policies:
+        log.info("controller._publish_ebay_from_draft creating default return policy")
+        client.create_return_policy(token.access_token, {
+            "name": "Default Return Policy",
+            "marketplaceId": mid,
+            "categoryTypes": [{"name": "ALL_EXCLUDING_MOTORS_VEHICLES"}],
+            "returnsAccepted": True,
+            "refundMethod": "MONEY_BACK",
+            "returnPeriod": {"value": 30, "unit": "DAY"},
+            "returnShippingCostPayer": "SELLER",
+        })
+        return_policies = client.get_return_policies(token.access_token, marketplace_id=mid)
     if not fulfillment_policies:
         raise RuntimeError("no eBay fulfillment policies available for the authenticated user")
     if not payment_policies:
