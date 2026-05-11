@@ -1318,11 +1318,12 @@ def http_publish_ebay_listing(
     if not post.ebay_draft:
         raise HTTPException(status_code=422, detail="no eBay draft to publish")
     settings = app_state["cloud_settings"]
+    public_base = settings.public_base_url or str(request.base_url)
     try:
         listing = _publish_ebay_from_draft(
             post=post,
             draft=post.ebay_draft,
-            public_base=str(request.base_url),
+            public_base=public_base,
             settings=settings,
             repo=token_repo,
         )

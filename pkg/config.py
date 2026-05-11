@@ -40,6 +40,7 @@ class CloudSettings:
     ebay_location_city: str = "San Jose"
     ebay_location_state: str = "CA"
     ebay_location_country: str = "US"
+    public_base_url: str | None = None
 
     @classmethod
     def from_env(cls) -> CloudSettings:
@@ -62,4 +63,5 @@ class CloudSettings:
             ebay_location_city=_env("EBAY_LOCATION_CITY") or "San Jose",
             ebay_location_state=_env("EBAY_LOCATION_STATE") or "CA",
             ebay_location_country=_env("EBAY_LOCATION_COUNTRY") or "US",
+            public_base_url=_env("PUBLIC_BASE_URL"),
         )

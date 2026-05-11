@@ -474,6 +474,13 @@ def test_e2e_post_create_user_123_publishes_ebay_listing(e2e_client: TestClient)
                 "update_offer",
             ]
 
+            # Inventory item includes the post's image URL
+            inv_call = next(c for c in fake_ebay.calls if c[0] == "create_or_replace_inventory_item")
+            inv_payload = inv_call[2]
+            image_urls_sent = inv_payload["product"].get("imageUrls", [])
+            assert image_urls_sent, "inventory item must include at least one imageUrl"
+            assert any(f"/images/posts/{body['id']}/" in u for u in image_urls_sent), image_urls_sent
+
             # Offer was created with the right category and SKU from the draft
             offer_payload = next(c[1] for c in fake_ebay.calls if c[0] == "create_offer")
             assert offer_payload["categoryId"] == "9355"
@@ -488,3 +495,106 @@ def test_e2e_post_create_user_123_publishes_ebay_listing(e2e_client: TestClient)
     finally:
         app_state.pop("product_analyzer", None)
         app_state["images_storage"] = None
+
+
+@pytest.mark.e2e
+def test_e2e_publish_ebay_listing_sends_image_url_to_inventory_item(e2e_client: TestClient) -> None:
+    """Publishing an eBay listing sends the post's image URL in the inventory item payload."""
+    analysis = AnalyzeProductImageResponse(
+        product_name="Sony WH-1000XM5",
+        brand="Sony",
+        model="WH-1000XM5",
+        category="Headphones",
+        condition_estimate="good",
+        price_estimate=PriceEstimate(low=200, high=280, currency="USD", reasoning="r"),
+    )
+    fake_ebay = _FakeEbayClient()
+    storage = MagicMock()
+    storage.bucket_name = "mlops-images"
+    storage.upload_bytes = MagicMock()
+
+    app_state["product_analyzer"] = ProductAnalyzer(gemini_caller=_fake_gemini_for(analysis))
+    app_state["images_storage"] = storage
+    app_state["ebay_token_repository"] = _seed_token("user-img-test")
+    try:
+        with patch("server._get_ebay_client", lambda _: fake_ebay):
+            r = e2e_client.post(
+                "/posts",
+                data={"description": "Sony headphones barely used", "user_id": "user-img-test"},
+                files=[("files", ("headphones.jpg", _MINIMAL_JPEG, "image/jpeg"))],
+            )
+            assert r.status_code == 201, r.text
+            post_body = r.json()
+            assert post_body["image_urls"], "post must have at least one image_url"
+
+            pub_r = e2e_client.post(f"/posts/{post_body['id']}/ebay/publish")
+            assert pub_r.status_code == 200, pub_r.text
+
+            inv_call = next(c for c in fake_ebay.calls if c[0] == "create_or_replace_inventory_item")
+            image_urls_sent = inv_call[2]["product"].get("imageUrls", [])
+
+            assert image_urls_sent, "imageUrls must be non-empty in the inventory item"
+            assert len(image_urls_sent) == len(post_body["image_urls"]), (
+                "inventory item must include one imageUrl per uploaded image"
+            )
+            for url in image_urls_sent:
+                assert f"/images/posts/{post_body['id']}/" in url, (
+                    f"imageUrl {url!r} should reference the post's images path"
+                )
+    finally:
+        app_state.pop("product_analyzer", None)
+        app_state["images_storage"] = None
+
+
+@pytest.mark.e2e
+def test_e2e_publish_uses_public_base_url_for_ebay_images(e2e_client: TestClient) -> None:
+    """When PUBLIC_BASE_URL is set, eBay image URLs use it instead of the request's base URL."""
+    analysis = AnalyzeProductImageResponse(
+        product_name="Bose QC45",
+        brand="Bose",
+        model="QC45",
+        category="Headphones",
+        condition_estimate="good",
+        price_estimate=PriceEstimate(low=150, high=200, currency="USD", reasoning="r"),
+    )
+    fake_ebay = _FakeEbayClient()
+    storage = MagicMock()
+    storage.bucket_name = "mlops-images"
+    storage.upload_bytes = MagicMock()
+
+    production_url = "https://fastapi-34676207684.us-central1.run.app"
+
+    app_state["product_analyzer"] = ProductAnalyzer(gemini_caller=_fake_gemini_for(analysis))
+    app_state["images_storage"] = storage
+    app_state["ebay_token_repository"] = _seed_token("user-puburl-test")
+    original_settings = app_state["cloud_settings"]
+    from pkg.config import CloudSettings
+    app_state["cloud_settings"] = CloudSettings(
+        **{**original_settings.__dict__, "public_base_url": production_url}
+    )
+    try:
+        with patch("server._get_ebay_client", lambda _: fake_ebay):
+            r = e2e_client.post(
+                "/posts",
+                data={"description": "Bose headphones mint condition", "user_id": "user-puburl-test"},
+                files=[("files", ("bose.jpg", _MINIMAL_JPEG, "image/jpeg"))],
+            )
+            assert r.status_code == 201, r.text
+            post_body = r.json()
+
+            pub_r = e2e_client.post(f"/posts/{post_body['id']}/ebay/publish")
+            assert pub_r.status_code == 200, pub_r.text
+
+            inv_call = next(c for c in fake_ebay.calls if c[0] == "create_or_replace_inventory_item")
+            image_urls_sent = inv_call[2]["product"].get("imageUrls", [])
+
+            assert image_urls_sent, "imageUrls must be non-empty"
+            for url in image_urls_sent:
+                assert url.startswith(production_url), (
+                    f"imageUrl {url!r} must use the production base URL, not the request base"
+                )
+                assert f"/images/posts/{post_body['id']}/" in url
+    finally:
+        app_state.pop("product_analyzer", None)
+        app_state["images_storage"] = None
+        app_state["cloud_settings"] = original_settings

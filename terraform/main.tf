@@ -4,16 +4,12 @@
 # Variables are declared in variables.tf and set in terraform.tfvars.
 
 locals {
-  fastapi_cors_origins = join(",", [
-    "http://localhost:5173",
-    "http://127.0.0.1:5173",
-    "http://localhost:8000",
-    "http://127.0.0.1:8000",
-    "https://fastapi-${data.google_project.this.number}.${var.region}.run.app",
-    "https://fastapi-dev-${data.google_project.this.number}.${var.region}.run.app",
-  ])
+  fastapi_url     = "https://fastapi-${data.google_project.this.number}.${var.region}.run.app"
+  fastapi_dev_url = "https://fastapi-dev-${data.google_project.this.number}.${var.region}.run.app"
 
-  fastapi_env = [
+  fastapi_cors_origins = "*"
+
+  fastapi_env_common = [
     {
       name  = "MLFLOW_TRACKING_URI"
       value = google_cloud_run_v2_service.mlflow.uri
@@ -51,6 +47,20 @@ locals {
       value = "true"
     },
   ]
+
+  fastapi_env = concat(local.fastapi_env_common, [
+    {
+      name  = "PUBLIC_BASE_URL"
+      value = local.fastapi_url
+    },
+  ])
+
+  fastapi_dev_env = concat(local.fastapi_env_common, [
+    {
+      name  = "PUBLIC_BASE_URL"
+      value = local.fastapi_dev_url
+    },
+  ])
 
   fastapi_secret_env = [
     {
@@ -403,7 +413,7 @@ resource "google_cloud_run_v2_service" "fastapi_dev" {
       image = "${var.region}-docker.pkg.dev/${var.project_id}/fastapi/fastapi-ignacio:latest"
 
       dynamic "env" {
-        for_each = local.fastapi_env
+        for_each = local.fastapi_dev_env
         content {
           name  = env.value.name
           value = env.value.value
