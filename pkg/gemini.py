@@ -51,11 +51,11 @@ class GeminiClient:
     def model(self) -> str:
         return self._model
 
-    def generate_text(self, prompt: str) -> str:
-        response = self._client.models.generate_content(
-            model=self._model,
-            contents=prompt,
-        )
+    def generate_text(self, prompt: str, *, system_instruction: str | None = None) -> str:
+        kwargs: dict = {"model": self._model, "contents": prompt}
+        if system_instruction:
+            kwargs["config"] = {"system_instruction": system_instruction}
+        response = self._client.models.generate_content(**kwargs)
         text = getattr(response, "text", None)
         if text:
             return text
