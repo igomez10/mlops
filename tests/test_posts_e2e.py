@@ -475,7 +475,6 @@ def test_e2e_post_create_user_123_publishes_ebay_listing(e2e_client: TestClient)
                 "create_offer",
                 "publish_offer",
                 "get_offer",
-                "update_offer",
             ]
 
             opt_in_call = next(c for c in fake_ebay.calls if c[0] == "opt_in_to_program")
@@ -493,12 +492,9 @@ def test_e2e_post_create_user_123_publishes_ebay_listing(e2e_client: TestClient)
             assert offer_payload["categoryId"] == "9355"
             assert offer_payload["sku"] == f"post-{body['id']}"
 
-            # update_offer back-links the post; the description contains the post URL
-            update_call = next(c for c in fake_ebay.calls if c[0] == "update_offer")
-            assert update_call[1] == "offer-456"
-            update_desc = update_call[2]["listingDescription"]
-            assert f"/posts/{body['id']}" in update_desc
-            assert update_desc.startswith(listing["description"])
+            # Published descriptions stay buyer-facing and should not be mutated to add app backlinks.
+            assert "update_offer" not in pub_call_names
+            assert f"/posts/{body['id']}" not in listing["description"]
     finally:
         app_state.pop("product_analyzer", None)
         app_state["images_storage"] = None
