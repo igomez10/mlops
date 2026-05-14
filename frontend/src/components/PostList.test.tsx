@@ -8,7 +8,9 @@ import { PostList } from './PostList'
 
 vi.mock('../api/client', () => ({
   fetchPosts: vi.fn(),
+  fetchEbaySession: vi.fn(),
   createPostWithImage: vi.fn(),
+  getEbayConnectUrl: vi.fn(() => 'http://test.posts/auth/ebay/connect'),
   updatePost: vi.fn(),
   updateEbayDraft: vi.fn(),
   publishEbayListing: vi.fn(),
@@ -30,11 +32,20 @@ describe('PostList', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     vi.mocked(client.fetchPosts).mockReset()
+    vi.mocked(client.fetchEbaySession).mockReset()
     vi.mocked(client.createPostWithImage).mockReset()
+    vi.mocked(client.getEbayConnectUrl).mockReset()
     vi.mocked(client.updatePost).mockReset()
     vi.mocked(client.updateEbayDraft).mockReset()
     vi.mocked(client.publishEbayListing).mockReset()
     vi.mocked(client.fetchPosts).mockResolvedValue([])
+    vi.mocked(client.fetchEbaySession).mockResolvedValue({
+      user_id: null,
+      ebay_authenticated: false,
+    })
+    vi.mocked(client.getEbayConnectUrl).mockReturnValue(
+      'http://test.posts/auth/ebay/connect',
+    )
   })
 
   it('loads then shows empty state', async () => {
@@ -46,6 +57,9 @@ describe('PostList', () => {
       expect(screen.getByTestId('posts-empty')).toBeInTheDocument()
     })
     expect(client.fetchPosts).toHaveBeenCalledTimes(1)
+    expect(screen.getByTestId('ebay-auth-status')).toHaveTextContent(
+      'eBay not connected',
+    )
   })
 
   it('creates a post from the dialog and reloads the list', async () => {
@@ -64,7 +78,6 @@ describe('PostList', () => {
       screen.getByTestId('post-create-description'),
       'From dialog',
     )
-    await user.type(screen.getByTestId('post-create-user-id'), 'user-123')
     const file = new File([new Uint8Array([1, 2, 3])], 'x.png', {
       type: 'image/png',
     })
@@ -76,10 +89,20 @@ describe('PostList', () => {
     })
     const row = screen.getByTestId('post-row')
     expect(within(row).getByTestId('post-name')).toHaveTextContent('From dialog')
-    expect(client.createPostWithImage).toHaveBeenCalledWith('From dialog', file, {
-      userId: 'user-123',
-    })
+    expect(client.createPostWithImage).toHaveBeenCalledWith('From dialog', file)
     expect(client.fetchPosts).toHaveBeenCalledTimes(2)
+  })
+
+  it('shows the connect ebay call to action when the seller session is missing', async () => {
+    render(<PostList />)
+
+    await waitFor(() => screen.getByTestId('posts-empty'))
+
+    expect(screen.getByTestId('ebay-auth-connect')).toHaveAttribute(
+      'href',
+      'http://test.posts/auth/ebay/connect',
+    )
+    expect(screen.queryByTestId('post-create-ebay-connect')).toBeNull()
   })
 
   it('shows a spinner while creating a post from the dialog', async () => {

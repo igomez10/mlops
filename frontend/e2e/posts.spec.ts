@@ -77,12 +77,12 @@ test.describe('posts UI', () => {
       throw new Error(`e2e setup failed: ${setup.status()} ${await setup.text()}`)
     }
 
+    await page.goto(`${PLAYWRIGHT_API_BASE}/__e2e__/authenticate-ebay`)
     await page.goto('/')
     await page.getByTestId('post-new-open').click()
     await page
       .getByTestId('post-create-description')
       .fill('White Apple AirPods Pro Bluetooth earbuds')
-    await page.getByTestId('post-create-user-id').fill('user-123')
     await page.getByTestId('post-create-image').setInputFiles(airpodsFixturePath)
     await page.getByTestId('post-create-submit').click()
 

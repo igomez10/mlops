@@ -21,6 +21,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
+from urllib.parse import urlparse
 from unittest.mock import MagicMock, patch
 
 import httpx
@@ -29,9 +30,25 @@ from fastapi.testclient import TestClient
 from pymongo import MongoClient
 
 from pkg import EbayUserToken, InMemoryEbayTokenRepository
+from pkg.ebay_auth_session import EbayAuthSessionManager
 from product_analyzer import ProductAnalyzer
 from product_analyzer.schema import AnalyzeProductImageResponse, PriceEstimate
-from server import app, app_state
+from server import _ebay_state_secret, app, app_state
+
+
+def _set_authenticated_ebay_session_cookie(client: TestClient | httpx.Client, user_id: str) -> None:
+    if app_state.get("cloud_settings") is not None:
+        secret = _ebay_state_secret(app_state["cloud_settings"])
+    else:
+        secret = os.environ.get("EBAY_CERT_ID") or "test-secret"
+    manager = EbayAuthSessionManager(secret)
+    host = urlparse(str(client.base_url)).hostname or "testserver"
+    client.cookies.set(
+        manager.cookie_name,
+        manager.serialize_session_cookie(user_id),
+        domain=host,
+        path="/",
+    )
 
 
 def _post_names(name_suffix: str) -> tuple[str, str, str]:
@@ -247,9 +264,10 @@ def test_e2e_live_server_upload_airpods_prefills_required_ebay_fields() -> None:
     user_id = f"live-e2e-{suffix}"
 
     with httpx.Client(base_url=base, timeout=90.0) as client:
+        _set_authenticated_ebay_session_cookie(client, user_id)
         response = client.post(
             "/posts",
-            data={"description": description, "user_id": user_id},
+            data={"description": description},
             files=[("files", (image_path.name, image_path.read_bytes(), "image/jpeg"))],
         )
         assert response.status_code == 201, response.text
