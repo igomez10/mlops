@@ -21,8 +21,8 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
-from unittest.mock import MagicMock, patch
 from urllib.parse import urlparse
+from unittest.mock import MagicMock, patch
 
 import httpx
 import pytest
