@@ -69,12 +69,26 @@ class EbayDraftPrefillService:
 
     @staticmethod
     def _resolve_listing_title(analysis: dict[str, Any], fallback: str) -> str:
-        parts = [
+        parts = (
             str(analysis.get("brand") or "").strip(),
             str(analysis.get("product_name") or "").strip(),
             str(analysis.get("model") or "").strip(),
-        ]
-        raw = " ".join(part for part in parts if part)
+        )
+        deduped_parts: list[str] = []
+        for part in parts:
+            if not part:
+                continue
+            normalized_part = part.casefold()
+            if any(
+                normalized_part == existing.casefold() or normalized_part in existing.casefold()
+                for existing in deduped_parts
+            ):
+                continue
+            deduped_parts = [
+                existing for existing in deduped_parts if existing.casefold() not in normalized_part
+            ]
+            deduped_parts.append(part)
+        raw = " ".join(deduped_parts)
         title = raw or fallback.strip() or "Marketplace listing"
         return title[:80]
 

@@ -59,6 +59,12 @@ def _doc_to_post(doc: dict[str, Any]) -> Post:
     analysis = raw_analysis if isinstance(raw_analysis, dict) else None
     raw_ebay_draft = doc.get("ebay_draft")
     ebay_draft = raw_ebay_draft if isinstance(raw_ebay_draft, dict) else None
+    raw_ebay_drafts = doc.get("ebay_drafts")
+    ebay_drafts = [draft for draft in raw_ebay_drafts if isinstance(draft, dict)] if isinstance(raw_ebay_drafts, list) else []
+    if not ebay_drafts and ebay_draft is not None:
+        ebay_drafts = [ebay_draft]
+    if ebay_drafts:
+        ebay_draft = ebay_drafts[0]
     return Post(
         id=doc["_id"],
         name=doc["name"],
@@ -70,6 +76,7 @@ def _doc_to_post(doc: dict[str, Any]) -> Post:
         image_urls=image_urls,
         analysis=analysis,
         ebay_draft=ebay_draft,
+        ebay_drafts=ebay_drafts,
     )
 
 
@@ -183,6 +190,7 @@ class MongoPostRepository:
             "image_urls": urls,
             "analysis": analysis,
             "ebay_draft": None,
+            "ebay_drafts": [],
         }
         try:
             self._coll.insert_one(doc)
@@ -274,9 +282,32 @@ class MongoPostRepository:
         )
         if self.get_by_id(post_id, include_deleted=False) is None:
             return None
+        ebay_drafts = [draft] if draft is not None else []
         self._coll.update_one(
             {"_id": post_id},
-            {"$set": {"ebay_draft": draft, "updated_at": _utc_now()}},
+            {"$set": {"ebay_draft": draft, "ebay_drafts": ebay_drafts, "updated_at": _utc_now()}},
+        )
+        doc = self._coll.find_one({"_id": post_id})
+        return _doc_to_post(doc) if doc else None
+
+    def set_ebay_drafts(self, post_id: str, drafts: list[dict]) -> Post | None:
+        log.info(
+            "MongoPostRepository.set_ebay_drafts post_id=%s draft_count=%d",
+            post_id,
+            len(drafts),
+        )
+        if self.get_by_id(post_id, include_deleted=False) is None:
+            return None
+        normalized_drafts = [dict(draft) for draft in drafts if isinstance(draft, dict)]
+        self._coll.update_one(
+            {"_id": post_id},
+            {
+                "$set": {
+                    "ebay_draft": normalized_drafts[0] if normalized_drafts else None,
+                    "ebay_drafts": normalized_drafts,
+                    "updated_at": _utc_now(),
+                }
+            },
         )
         doc = self._coll.find_one({"_id": post_id})
         return _doc_to_post(doc) if doc else None
