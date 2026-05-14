@@ -9,7 +9,6 @@ from dataclasses import dataclass
 
 from fastapi import Request, Response
 
-
 EBAY_SESSION_COOKIE_NAME = "mlops_ebay_session"
 
 

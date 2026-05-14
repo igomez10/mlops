@@ -275,3 +275,16 @@ class InMemoryPostRepository:
         post.ebay_draft = post.ebay_drafts[0] if post.ebay_drafts else None
         post.updated_at = _utc_now()
         return post
+
+    def set_ebay_drafts(self, post_id: str, drafts: list[dict]) -> Post | None:
+        log.info(
+            "InMemoryPostRepository.set_ebay_drafts post_id=%s draft_count=%d",
+            post_id,
+            len(drafts),
+        )
+        post = self.get_by_id(post_id, include_deleted=False)
+        if post is None:
+            return None
+        post.ebay_drafts = list(drafts)
+        post.updated_at = _utc_now()
+        return post

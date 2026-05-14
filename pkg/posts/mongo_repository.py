@@ -311,3 +311,18 @@ class MongoPostRepository:
         )
         doc = self._coll.find_one({"_id": post_id})
         return _doc_to_post(doc) if doc else None
+
+    def set_ebay_drafts(self, post_id: str, drafts: list[dict]) -> Post | None:
+        log.info(
+            "MongoPostRepository.set_ebay_drafts post_id=%s draft_count=%d",
+            post_id,
+            len(drafts),
+        )
+        if self.get_by_id(post_id, include_deleted=False) is None:
+            return None
+        self._coll.update_one(
+            {"_id": post_id},
+            {"$set": {"ebay_drafts": list(drafts), "updated_at": _utc_now()}},
+        )
+        doc = self._coll.find_one({"_id": post_id})
+        return _doc_to_post(doc) if doc else None
