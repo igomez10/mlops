@@ -19,7 +19,7 @@ class EbayAuthSession:
 class EbayAuthSessionManager:
     """Signed cookie manager for lightweight eBay auth sessions."""
 
-    cookie_name = "ebay_auth_session"
+    cookie_name = "mlops_ebay_session"
 
     def __init__(self, secret: str) -> None:
         if not secret:

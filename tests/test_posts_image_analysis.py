@@ -11,8 +11,8 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
-from urllib.parse import urlparse
 from unittest.mock import MagicMock, patch
+from urllib.parse import urlparse
 
 import pytest
 from fastapi.testclient import TestClient
@@ -313,7 +313,9 @@ def test_post_create_builds_multiple_drafts_and_placeholder_listings_for_multi_i
             "Apple AirPods Pro",
             "Apple Watch Series 9",
         ]
-        assert all(draft["source_image_url"].startswith("http://testserver/images/posts/") for draft in body["ebay_drafts"])
+        assert all(
+            draft["source_image_url"].startswith("http://testserver/images/posts/") for draft in body["ebay_drafts"]
+        )
     finally:
         app_state.pop("product_analyzer", None)
         app_state["images_storage"] = None
