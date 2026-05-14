@@ -38,6 +38,11 @@ export type EbayDraft = {
   item_specifics: Record<string, string[]>
 }
 
+export type EbaySession = {
+  user_id: string | null
+  ebay_authenticated: boolean
+}
+
 /** Mirrors FastAPI `PostResponse` JSON (ISO-8601 date strings). */
 export type Post = {
   id: string

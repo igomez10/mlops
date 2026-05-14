@@ -236,3 +236,30 @@ def test_replace_listings_swaps_placeholder_listing():
     updated = repo.replace_listings(post.id, [replacement])
     assert updated is not None
     assert updated.listings == [replacement]
+
+
+def test_set_ebay_drafts_sets_legacy_primary_draft_alias():
+    repo = InMemoryPostRepository()
+    post = repo.create("drafts")
+    drafts = [
+        {"draft_id": "a", "title": "Apple AirPods Pro"},
+        {"draft_id": "b", "title": "Apple Watch"},
+    ]
+
+    updated = repo.set_ebay_drafts(post.id, drafts)
+
+    assert updated is not None
+    assert updated.ebay_drafts == drafts
+    assert updated.ebay_draft == drafts[0]
+
+
+def test_set_ebay_draft_keeps_singleton_drafts_in_sync():
+    repo = InMemoryPostRepository()
+    post = repo.create("draft")
+    draft = {"draft_id": "only", "title": "Sony WH-1000XM4"}
+
+    updated = repo.set_ebay_draft(post.id, draft)
+
+    assert updated is not None
+    assert updated.ebay_draft == draft
+    assert updated.ebay_drafts == [draft]

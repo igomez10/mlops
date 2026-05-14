@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from pymongo import ASCENDING
@@ -59,6 +59,12 @@ def _doc_to_post(doc: dict[str, Any]) -> Post:
     analysis = raw_analysis if isinstance(raw_analysis, dict) else None
     raw_ebay_draft = doc.get("ebay_draft")
     ebay_draft = raw_ebay_draft if isinstance(raw_ebay_draft, dict) else None
+    raw_ebay_drafts = doc.get("ebay_drafts")
+    ebay_drafts = [item for item in raw_ebay_drafts if isinstance(item, dict)] if isinstance(raw_ebay_drafts, list) else []
+    if not ebay_drafts and ebay_draft is not None:
+        ebay_drafts = [ebay_draft]
+    if ebay_draft is None and ebay_drafts:
+        ebay_draft = ebay_drafts[0]
     return Post(
         id=doc["_id"],
         name=doc["name"],
@@ -70,6 +76,7 @@ def _doc_to_post(doc: dict[str, Any]) -> Post:
         image_urls=image_urls,
         analysis=analysis,
         ebay_draft=ebay_draft,
+        ebay_drafts=ebay_drafts,
     )
 
 
@@ -91,6 +98,16 @@ class MongoPostRepository:
         if isinstance(rows, list):
             return rows
         return list(rows)
+
+    def _next_created_at(self) -> datetime:
+        now = _utc_now()
+        docs = self._find({}, limit=500)
+        if not docs:
+            return now
+        latest = max(_ensure_utc(doc["created_at"]) for doc in docs)
+        if latest >= now:
+            return latest + timedelta(microseconds=1)
+        return now
 
     def _has_active_name_conflict(
         self,
@@ -154,7 +171,7 @@ class MongoPostRepository:
         if self._has_active_name_conflict(key):
             raise ValueError(f"a post with name {key!r} already exists")
         urls = list(image_urls) if image_urls is not None else []
-        now = _utc_now()
+        now = self._next_created_at()
         pid = post_id or str(uuid.uuid4())
         desc = description.strip() if description else ""
         list_caption = desc or key
@@ -183,6 +200,7 @@ class MongoPostRepository:
             "image_urls": urls,
             "analysis": analysis,
             "ebay_draft": None,
+            "ebay_drafts": [],
         }
         try:
             self._coll.insert_one(doc)
@@ -276,7 +294,22 @@ class MongoPostRepository:
             return None
         self._coll.update_one(
             {"_id": post_id},
-            {"$set": {"ebay_draft": draft, "updated_at": _utc_now()}},
+            {"$set": {"ebay_draft": draft, "ebay_drafts": ([draft] if draft is not None else []), "updated_at": _utc_now()}},
+        )
+        doc = self._coll.find_one({"_id": post_id})
+        return _doc_to_post(doc) if doc else None
+
+    def set_ebay_drafts(self, post_id: str, drafts: list[dict]) -> Post | None:
+        log.info(
+            "MongoPostRepository.set_ebay_drafts post_id=%s draft_count=%d",
+            post_id,
+            len(drafts),
+        )
+        if self.get_by_id(post_id, include_deleted=False) is None:
+            return None
+        self._coll.update_one(
+            {"_id": post_id},
+            {"$set": {"ebay_draft": (drafts[0] if drafts else None), "ebay_drafts": drafts, "updated_at": _utc_now()}},
         )
         doc = self._coll.find_one({"_id": post_id})
         return _doc_to_post(doc) if doc else None

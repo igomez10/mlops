@@ -77,18 +77,71 @@ def test_ebay_authorize_returns_consent_url(monkeypatch):
     monkeypatch.setenv("EBAY_APP_ID", "test-app-id")
     monkeypatch.setenv("EBAY_CERT_ID", "test-cert-id")
     with TestClient(app) as test_client:
-        response = test_client.get("/auth/ebay/authorize", params={"user_id": "user-123"})
+        response = test_client.get("/auth/ebay/authorize")
 
         assert response.status_code == 200
         body = response.json()
         assert body["state"]
         assert SELL_INVENTORY_SCOPE in body["scopes"]
         assert SELL_ACCOUNT_SCOPE in body["scopes"]
+        assert response.cookies.get("mlops_ebay_session")
 
         parsed = urlparse(body["authorization_url"])
         query = parse_qs(parsed.query)
         assert query["redirect_uri"] == ["test-runame"]
         assert query["state"] == [body["state"]]
+
+
+def test_ebay_session_reflects_authenticated_cookie_state(monkeypatch):
+    class _FakeEbayClient:
+        def build_user_consent_url(self, *, runame: str, state: str, scopes: tuple[str, ...]) -> str:
+            assert runame == "test-runame"
+            assert state
+            assert scopes
+            return f"https://auth.example.test/consent?state={state}"
+
+        def exchange_authorization_code(self, code: str, *, runame: str) -> dict:
+            assert code == "auth-code-123"
+            assert runame == "test-runame"
+            return {
+                "access_token": "user-access",
+                "refresh_token": "user-refresh",
+                "expires_in": 7200,
+                "refresh_token_expires_in": 47304000,
+                "scope": f"{SELL_INVENTORY_SCOPE} {SELL_ACCOUNT_SCOPE}",
+                "token_type": "User Access Token",
+            }
+
+    monkeypatch.setenv("EBAY_RUNAME", "test-runame")
+    monkeypatch.setenv("EBAY_APP_ID", "test-app-id")
+    monkeypatch.setenv("EBAY_CERT_ID", "test-cert-id")
+    monkeypatch.setattr("server._get_ebay_client", lambda settings: _FakeEbayClient())
+    with TestClient(app) as test_client:
+        repo = InMemoryEbayTokenRepository()
+        app_state["ebay_token_repository"] = repo
+
+        authorize = test_client.get("/auth/ebay/authorize")
+        assert authorize.status_code == 200
+
+        session_before = test_client.get("/auth/ebay/session")
+        assert session_before.status_code == 200
+        assert session_before.json()["ebay_authenticated"] is False
+        user_id = session_before.json()["user_id"]
+        assert isinstance(user_id, str)
+
+        settings = app_state["cloud_settings"]
+        callback = test_client.get(
+            "/auth/ebay/callback",
+            params={"code": "auth-code-123", "state": _make_ebay_state(user_id, settings)},
+        )
+        assert callback.status_code == 200
+
+        session_after = test_client.get("/auth/ebay/session")
+        assert session_after.status_code == 200
+        assert session_after.json() == {
+            "user_id": user_id,
+            "ebay_authenticated": True,
+        }
 
 
 def test_ebay_callback_stores_tokens(monkeypatch):
@@ -124,6 +177,7 @@ def test_ebay_callback_stores_tokens(monkeypatch):
         assert body["user_id"] == "user-123"
         assert body["refresh_token_present"] is True
         assert SELL_INVENTORY_SCOPE in body["scopes"]
+        assert response.cookies.get("mlops_ebay_session")
         stored = repo.get_by_user_id("user-123")
         assert stored is not None
         assert stored.access_token == "user-access"

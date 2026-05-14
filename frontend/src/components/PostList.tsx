@@ -8,12 +8,14 @@ import {
 } from 'react'
 import {
   createPostWithImage,
+  fetchEbaySession,
   fetchPosts,
+  getEbayConnectUrl,
   publishEbayListing,
   updateEbayDraft,
   updatePost,
 } from '../api/client'
-import type { EbayDraft, Post } from '../types/post'
+import type { EbayDraft, EbaySession, Post } from '../types/post'
 
 type DraftValidationField = {
   key: string
@@ -133,13 +135,13 @@ export function PostList() {
   const titleId = useId()
   const [now, setNow] = useState(() => new Date())
   const [posts, setPosts] = useState<Post[] | null>(null)
+  const [ebaySession, setEbaySession] = useState<EbaySession | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
 
   const [createOpen, setCreateOpen] = useState(false)
   const [createDescription, setCreateDescription] = useState('')
   const [createImage, setCreateImage] = useState<File | null>(null)
-  const [createUserId, setCreateUserId] = useState('')
   const [creating, setCreating] = useState(false)
 
   const [editingId, setEditingId] = useState<string | null>(null)
@@ -168,10 +170,24 @@ export function PostList() {
     }
   }, [])
 
+  const loadEbaySession = useCallback(async () => {
+    try {
+      const session = await fetchEbaySession()
+      setEbaySession(session)
+    } catch (e: unknown) {
+      setEbaySession(null)
+      setLoadError((prev) =>
+        prev ?? (e instanceof Error ? e.message : 'Failed to load eBay session'),
+      )
+    }
+  }, [])
+
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- initial fetch; state updates run after await
     void loadPosts()
-  }, [loadPosts])
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- initial fetch; state updates run after await
+    void loadEbaySession()
+  }, [loadEbaySession, loadPosts])
 
   useEffect(() => {
     const t = window.setInterval(() => setNow(() => new Date()), 60_000)
@@ -191,7 +207,6 @@ export function PostList() {
     setActionError(null)
     setCreateDescription('')
     setCreateImage(null)
-    setCreateUserId('')
     setCreateOpen(true)
   }
 
@@ -208,13 +223,10 @@ export function PostList() {
     setActionError(null)
     setCreating(true)
     try {
-      await createPostWithImage(createDescription.trim(), createImage, {
-        userId: createUserId.trim() || undefined,
-      })
+      await createPostWithImage(createDescription.trim(), createImage)
       setCreateOpen(false)
       setCreateDescription('')
       setCreateImage(null)
-      setCreateUserId('')
       await loadPosts()
     } catch (err: unknown) {
       setActionError(err instanceof Error ? err.message : 'Create failed')
@@ -343,19 +355,38 @@ export function PostList() {
   }
 
   const busy = !!savingId
+  const ebayConnectUrl = getEbayConnectUrl()
+  const ebayConnected = ebaySession?.ebay_authenticated ?? false
 
   return (
     <div className="post-list">
       <div className="post-list-toolbar">
         <h2 className="post-list-title">Your scans</h2>
-        <button
-          type="button"
-          className="post-new-button"
-          onClick={openCreate}
-          data-testid="post-new-open"
-        >
-          Scan new photo
-        </button>
+        <div className="post-list-toolbar-actions">
+          <span
+            className={`badge ${ebayConnected ? 'active' : 'muted'}`}
+            data-testid="ebay-auth-status"
+          >
+            {ebayConnected ? 'eBay connected' : 'eBay not connected'}
+          </span>
+          {!ebayConnected ? (
+            <a
+              href={ebayConnectUrl}
+              className="secondary post-auth-link"
+              data-testid="ebay-auth-connect"
+            >
+              Connect eBay
+            </a>
+          ) : null}
+          <button
+            type="button"
+            className="post-new-button"
+            onClick={openCreate}
+            data-testid="post-new-open"
+          >
+            Scan new photo
+          </button>
+        </div>
       </div>
 
       {createOpen ? (
@@ -417,20 +448,18 @@ export function PostList() {
                 />
               </div>
 
-              <label className="post-create-label" htmlFor="post-create-user-id">
-                eBay user ID{' '}
-                <span className="post-create-optional">optional</span>
-              </label>
-              <input
-                id="post-create-user-id"
-                type="text"
-                className="post-create-input"
-                value={createUserId}
-                onChange={(e) => setCreateUserId(e.target.value)}
-                disabled={creating}
-                placeholder="Enables automatic eBay publishing"
-                data-testid="post-create-user-id"
-              />
+              <div className="post-create-ebay-note" data-testid="post-create-ebay-note">
+                {ebayConnected ? (
+                  'This scan will be linked to your connected eBay account so we can prepare a publishable draft.'
+                ) : (
+                  <>
+                    Connect eBay first if you want this scan to include a seller-ready draft.{' '}
+                    <a href={ebayConnectUrl} data-testid="post-create-ebay-connect">
+                      Connect eBay
+                    </a>
+                  </>
+                )}
+              </div>
 
               <div className="post-create-dialog-actions">
                 <button
