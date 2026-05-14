@@ -18,7 +18,7 @@ from typing import Any, cast
 import fastapi
 from fastapi import Depends, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, HTMLResponse, Response
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, model_validator
 from pymongo import MongoClient
@@ -40,6 +40,7 @@ from pkg import (
     MongoEbayTokenRepository,
 )
 from pkg.ebay import DEFAULT_USER_SCOPES, EbayClient
+from pkg.ebay_auth_session import EbayAuthSession, EbayAuthSessionManager
 from pkg.ebay_listing_prefill import EbayDraftPrefillService
 from pkg.gcs import api_absolute_url_for_object_key, normalize_stored_to_object_key  # noqa: E402
 from pkg.gemini import GeminiClient
@@ -185,9 +186,41 @@ def _get_ebay_client(settings: CloudSettings) -> EbayClient:
 
 
 def _ebay_state_secret(settings: CloudSettings) -> str:
-    if not settings.ebay_cert_id:
-        raise RuntimeError("EBAY_CERT_ID must be configured")
-    return settings.ebay_cert_id
+    if settings.ebay_cert_id:
+        return settings.ebay_cert_id
+    generated = app_state.get("ebay_state_secret")
+    if isinstance(generated, str) and generated:
+        return generated
+    generated = uuid.uuid4().hex
+    app_state["ebay_state_secret"] = generated
+    return generated
+
+
+def _ebay_auth_session_manager(settings: CloudSettings) -> EbayAuthSessionManager:
+    return EbayAuthSessionManager(_ebay_state_secret(settings))
+
+
+def _should_secure_session_cookie(request: Request, settings: CloudSettings) -> bool:
+    if request.url.scheme == "https":
+        return True
+    public_base = (settings.public_base_url or "").strip().lower()
+    return public_base.startswith("https://")
+
+
+def _get_ebay_session(request: Request, settings: CloudSettings) -> EbayAuthSession | None:
+    return _ebay_auth_session_manager(settings).get_session(request)
+
+
+def _get_or_create_ebay_session(request: Request, settings: CloudSettings) -> EbayAuthSession:
+    return _ebay_auth_session_manager(settings).get_or_create_session(request)
+
+
+def _attach_ebay_session_cookie(response: Response, *, request: Request, settings: CloudSettings, user_id: str) -> None:
+    _ebay_auth_session_manager(settings).attach_session_cookie(
+        response,
+        user_id=user_id,
+        secure=_should_secure_session_cookie(request, settings),
+    )
 
 
 def _make_ebay_state(user_id: str, settings: CloudSettings) -> str:
@@ -248,6 +281,11 @@ class EbayAuthorizeResponse(BaseModel):
     authorization_url: str
     state: str
     scopes: list[str]
+
+
+class EbaySessionResponse(BaseModel):
+    user_id: str | None = None
+    ebay_authenticated: bool
 
 
 class EbayCallbackResponse(BaseModel):
@@ -393,6 +431,21 @@ def _get_valid_ebay_user_token(
     return refreshed
 
 
+def _get_authenticated_ebay_user_id(
+    request: Request,
+    *,
+    settings: CloudSettings,
+    repo: EbayTokenRepository,
+) -> str | None:
+    try:
+        session = _get_ebay_session(request, settings)
+    except RuntimeError:
+        return None
+    if session is None:
+        return None
+    return session.user_id if repo.get_by_user_id(session.user_id) is not None else None
+
+
 def _resolve_ebay_listing_title(analysis: dict[str, Any], fallback: str) -> str:
     log.info("controller._resolve_ebay_listing_title fallback=%s", fallback)
     return EbayDraftPrefillService._resolve_listing_title(analysis, fallback)
@@ -457,6 +510,52 @@ def _build_public_image_urls(image_urls: list[str], *, public_base: str, images_
     ]
 
 
+def _normalized_analysis_items(analysis: dict[str, Any] | None) -> list[dict[str, Any]]:
+    if not isinstance(analysis, dict):
+        return []
+    raw_items = analysis.get("detected_items")
+    items = [item for item in raw_items if isinstance(item, dict)] if isinstance(raw_items, list) else []
+    if items:
+        return items
+    return [analysis]
+
+
+def _analysis_has_meaningful_content(analysis: dict[str, Any]) -> bool:
+    keys = ("product_name", "brand", "model", "category", "condition_estimate")
+    if any(str(analysis.get(key) or "").strip() for key in keys):
+        return True
+    visible_text = analysis.get("visible_text")
+    return isinstance(visible_text, list) and any(str(item).strip() for item in visible_text)
+
+
+def _synthetic_listings_from_analysis(
+    *,
+    image_urls: list[str],
+    analyses: list[dict[str, Any]],
+    caption: str,
+) -> list[Listing]:
+    now = datetime.now(timezone.utc)
+    primary_image = image_urls[0] if image_urls else ""
+    listings: list[Listing] = []
+    for index, analysis in enumerate(analyses):
+        if not _analysis_has_meaningful_content(analysis):
+            continue
+        title = _resolve_ebay_listing_title(analysis, fallback=f"Item {index + 1}")
+        base_caption = caption.strip() or title
+        description = _resolve_ebay_listing_description(analysis, fallback=base_caption)
+        listings.append(
+            Listing(
+                id=str(uuid.uuid4()),
+                marketplace_url=f"https://local.invalid/pending?item={index}",
+                image_url=primary_image,
+                created_at=now,
+                status="draft",
+                description=description,
+            )
+        )
+    return listings
+
+
 def _suggest_item_specifics(
     analysis: dict[str, Any],
     aspects: list[dict[str, Any]],
@@ -486,6 +585,32 @@ def _build_ebay_draft(
         ebay_client=_get_ebay_client(settings),
     )
     return service.build_draft(post=post, analysis=analysis, user_id=user_id)
+
+
+def _build_ebay_drafts(
+    *,
+    post: Post,
+    analysis: dict[str, Any],
+    user_id: str,
+    settings: CloudSettings,
+) -> list[dict[str, Any]]:
+    items = _normalized_analysis_items(analysis)
+    drafts: list[dict[str, Any]] = []
+    for index, item_analysis in enumerate(items):
+        if not _analysis_has_meaningful_content(item_analysis):
+            continue
+        draft = _build_ebay_draft(
+            post=post,
+            analysis=item_analysis,
+            user_id=user_id,
+            settings=settings,
+        )
+        draft["draft_id"] = uuid.uuid4().hex
+        draft["source_image_url"] = post.image_urls[0] if post.image_urls else ""
+        draft["analysis_index"] = index
+        draft["draft_count"] = len(items)
+        drafts.append(draft)
+    return drafts
 
 
 def _publish_ebay_from_draft(
@@ -591,7 +716,13 @@ def _publish_ebay_from_draft(
     )
 
     public_images = _build_public_image_urls(post.image_urls, public_base=public_base, images_bucket=_images_bucket())
-    sku = f"post-{post.id}"
+    draft_id = str(draft.get("draft_id") or "").strip()
+    draft_count = int(draft.get("draft_count") or 0)
+    if draft_count > 1 and draft_id:
+        sku_suffix = re.sub(r"[^a-zA-Z0-9-]", "", draft_id)[:12] or "0"
+        sku = f"post-{post.id}-{sku_suffix}"
+    else:
+        sku = f"post-{post.id}"
     product: dict[str, Any] = {"title": title, "description": listing_description, "imageUrls": public_images}
     brand = str((item_specifics.get("Brand") or [""])[0]).strip()
     model = str((item_specifics.get("Model") or [""])[0]).strip()
@@ -640,8 +771,6 @@ def _publish_ebay_from_draft(
         or "published"
     )
 
-    # Best-effort: update the published listing description to include a back-link
-    # to the originating post in our app, so buyers can find it again.
     post_url = f"{public_base.rstrip('/')}/posts/{post.id}"
     description_with_link = f"{listing_description}\n\n---\nSee the original listing: {post_url}"
     try:
@@ -656,7 +785,7 @@ def _publish_ebay_from_draft(
     return Listing(
         id=listing_id,
         marketplace_url=marketplace_url,
-        image_url=post.image_urls[0] if post.image_urls else "",
+        image_url=str(draft.get("source_image_url") or (post.image_urls[0] if post.image_urls else "")),
         created_at=datetime.now(timezone.utc),
         status=listing_status,
         description=listing_description,
@@ -815,6 +944,7 @@ if os.environ.get("E2E_TEST") == "1":
         if app_state.get("mongo_client") is not None:
             return {"ok": False, "reason": "not supported with MongoDB"}
         app_state["post_repository"] = InMemoryPostRepository()
+        app_state["ebay_token_repository"] = InMemoryEbayTokenRepository()
         app_state["images_storage"] = None
         app_state["product_analyzer"] = ProductAnalyzer()
         app_state["ebay_client"] = None
@@ -827,6 +957,30 @@ if os.environ.get("E2E_TEST") == "1":
         app_state["product_analyzer"] = _E2EConfiguredAnalyzer()
         app_state["ebay_client"] = _E2EConfiguredEbayClient()
         return {"ok": True}
+
+    @app.post("/__e2e__/authenticate-ebay")
+    def e2e_authenticate_ebay(request: Request, response: Response) -> dict[str, str]:
+        """In-memory only: seed an authenticated eBay session for browser tests."""
+        settings = app_state["cloud_settings"]
+        session = _get_or_create_ebay_session(request, settings)
+        now = datetime.now(timezone.utc)
+        repo = InMemoryEbayTokenRepository()
+        repo.upsert(
+            EbayUserToken(
+                user_id=session.user_id,
+                access_token="e2e-access-token",
+                refresh_token="e2e-refresh-token",
+                token_type="Bearer",
+                scopes=list(DEFAULT_USER_SCOPES),
+                expires_at=now + timedelta(hours=1),
+                refresh_token_expires_at=now + timedelta(days=30),
+                created_at=now,
+                updated_at=now,
+            )
+        )
+        app_state["ebay_token_repository"] = repo
+        _attach_ebay_session_cookie(response, request=request, settings=settings, user_id=session.user_id)
+        return {"user_id": session.user_id}
 
     @app.post("/__e2e__/seed-post")
     def e2e_seed_post(request: Request, seed: _E2EPostSeed) -> dict[str, Any]:
@@ -868,19 +1022,36 @@ def health() -> dict:
     return {"status": "ok"}
 
 
+@app.get("/auth/ebay/session", response_model=EbaySessionResponse)
+def ebay_session(
+    request: Request,
+    repo: EbayTokenRepository = Depends(get_ebay_token_repo),
+) -> EbaySessionResponse:
+    settings = app_state["cloud_settings"]
+    session = _get_ebay_session(request, settings)
+    if session is None:
+        return EbaySessionResponse(user_id=None, ebay_authenticated=False)
+    return EbaySessionResponse(
+        user_id=session.user_id,
+        ebay_authenticated=repo.get_by_user_id(session.user_id) is not None,
+    )
+
+
 @app.get("/auth/ebay/authorize", response_model=EbayAuthorizeResponse)
-def ebay_authorize(user_id: str) -> EbayAuthorizeResponse:
-    log.info("network.ebay_authorize user_id=%s", user_id)
+def ebay_authorize(request: Request, response: Response) -> EbayAuthorizeResponse:
     settings = app_state["cloud_settings"]
     if not settings.ebay_runame:
         raise HTTPException(status_code=503, detail="EBAY_RUNAME not configured")
-    state = _make_ebay_state(user_id, settings)
+    session = _get_or_create_ebay_session(request, settings)
+    log.info("network.ebay_authorize user_id=%s", session.user_id)
+    state = _make_ebay_state(session.user_id, settings)
     scopes = list(DEFAULT_USER_SCOPES)
     authorization_url = _get_ebay_client(settings).build_user_consent_url(
         runame=settings.ebay_runame,
         state=state,
         scopes=DEFAULT_USER_SCOPES,
     )
+    _attach_ebay_session_cookie(response, request=request, settings=settings, user_id=session.user_id)
     return EbayAuthorizeResponse(
         authorization_url=authorization_url,
         state=state,
@@ -888,8 +1059,28 @@ def ebay_authorize(user_id: str) -> EbayAuthorizeResponse:
     )
 
 
+@app.get("/auth/ebay/connect")
+def ebay_connect(request: Request) -> RedirectResponse:
+    settings = app_state["cloud_settings"]
+    if not settings.ebay_runame:
+        raise HTTPException(status_code=503, detail="EBAY_RUNAME not configured")
+    session = _get_or_create_ebay_session(request, settings)
+    log.info("network.ebay_connect user_id=%s", session.user_id)
+    state = _make_ebay_state(session.user_id, settings)
+    authorization_url = _get_ebay_client(settings).build_user_consent_url(
+        runame=settings.ebay_runame,
+        state=state,
+        scopes=DEFAULT_USER_SCOPES,
+    )
+    response = RedirectResponse(url=authorization_url, status_code=307)
+    _attach_ebay_session_cookie(response, request=request, settings=settings, user_id=session.user_id)
+    return response
+
+
 @app.get("/auth/ebay/callback", response_model=EbayCallbackResponse)
 def ebay_callback(
+    request: Request,
+    response: Response,
     code: str | None = None,
     state: str | None = None,
     error: str | None = None,
@@ -902,13 +1093,15 @@ def ebay_callback(
         bool(state),
         bool(error),
     )
-    return _store_ebay_callback(
+    callback = _store_ebay_callback(
         code=code,
         state=state,
         error=error,
         error_description=error_description,
         repo=repo,
     )
+    _attach_ebay_session_cookie(response, request=request, settings=app_state["cloud_settings"], user_id=callback.user_id)
+    return callback
 
 
 @app.get("/ebay/listings", response_model=EbayListingsResponse)
@@ -965,6 +1158,7 @@ def ebay_listings(
 
 @app.get("/auth/ebay/accepted", response_class=HTMLResponse)
 def ebay_authorization_accepted(
+    request: Request,
     code: str | None = None,
     state: str | None = None,
     error: str | None = None,
@@ -976,16 +1170,23 @@ def ebay_authorization_accepted(
         bool(code),
         bool(state),
     )
-    _store_ebay_callback(
+    callback = _store_ebay_callback(
         code=code,
         state=state,
         error=error,
         error_description=error_description,
         repo=repo,
     )
-    return HTMLResponse(
-        "<html><body><h1>eBay authorization accepted</h1><p>You can close this window.</p></body></html>"
+    response = HTMLResponse(
+        (
+            "<html><body><h1>eBay authorization accepted</h1>"
+            "<p>Returning to the app… You can close this window if nothing happens.</p>"
+            "<script>window.setTimeout(function(){window.location.replace('/');}, 250);</script>"
+            "</body></html>"
+        )
     )
+    _attach_ebay_session_cookie(response, request=request, settings=app_state["cloud_settings"], user_id=callback.user_id)
+    return response
 
 
 @app.get("/auth/ebay/rejected", response_class=HTMLResponse)
@@ -1072,6 +1273,7 @@ class PostResponse(BaseModel):
     image_urls: list[str] = Field(default_factory=list)
     analysis: dict | None = None
     ebay_draft: dict | None = None
+    ebay_drafts: list[dict] = Field(default_factory=list)
 
     @classmethod
     def from_post(
@@ -1084,6 +1286,15 @@ class PostResponse(BaseModel):
         def _img_url(stored: str) -> str:
             key = normalize_stored_to_object_key(stored, images_bucket)
             return api_absolute_url_for_object_key(public_base, key)
+
+        def _draft_with_public_image(draft: dict | None) -> dict | None:
+            if not isinstance(draft, dict):
+                return None
+            out = dict(draft)
+            source = out.get("source_image_url")
+            if isinstance(source, str) and source.strip():
+                out["source_image_url"] = _img_url(source)
+            return out
 
         return cls(
             id=post.id,
@@ -1105,7 +1316,12 @@ class PostResponse(BaseModel):
             ],
             image_urls=[_img_url(u) for u in post.image_urls],
             analysis=post.analysis,
-            ebay_draft=post.ebay_draft,
+            ebay_draft=_draft_with_public_image(post.ebay_draft),
+            ebay_drafts=[
+                converted
+                for draft in post.ebay_drafts
+                if (converted := _draft_with_public_image(draft)) is not None
+            ],
         )
 
 
@@ -1203,6 +1419,7 @@ def http_get_post(
 async def http_create_post(
     request: Request,
     repo: PostRepository = Depends(get_post_repo),
+    token_repo: EbayTokenRepository = Depends(get_ebay_token_repo),
 ) -> PostResponse:
     log.info("network.http_create_post content_type=%s", request.headers.get("content-type"))
     content_type = (request.headers.get("content-type") or "").lower()
@@ -1241,7 +1458,7 @@ async def http_create_post(
             detail="description is required (non-empty) for image upload",
         )
     body_user_id = form.get("user_id")
-    user_id = body_user_id.strip() if isinstance(body_user_id, str) and body_user_id.strip() else None
+    form_user_id = body_user_id.strip() if isinstance(body_user_id, str) and body_user_id.strip() else None
     file_uploads: list[UploadFile] = []
     for k, v in form.multi_items():
         if k == "files" and not isinstance(v, str):
@@ -1249,6 +1466,8 @@ async def http_create_post(
     if not file_uploads:
         raise HTTPException(status_code=422, detail="at least one image file is required")
 
+    settings = app_state["cloud_settings"]
+    user_id = _get_authenticated_ebay_user_id(request, settings=settings, repo=token_repo) or form_user_id
     storage = get_images_storage()
     if storage is None:
         raise HTTPException(
@@ -1274,6 +1493,15 @@ async def http_create_post(
         except Exception as exc:  # noqa: BLE001
             log.warning("product analysis skipped for post %s: %s", post_id, exc)
     internal_name = f"p-{post_id.replace('-', '')[:16]}"
+    seeded_listings: list[Listing] | None = None
+    if analysis_result is not None:
+        analysis_items = _normalized_analysis_items(analysis_result)
+        if len(analysis_items) > 1:
+            seeded_listings = _synthetic_listings_from_analysis(
+                image_urls=urls,
+                analyses=analysis_items,
+                caption=body_desc.strip(),
+            )
     try:
         post = repo.create(
             internal_name,
@@ -1281,18 +1509,19 @@ async def http_create_post(
             post_id=post_id,
             image_urls=urls,
             analysis=analysis_result,
+            listings=seeded_listings,
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
     if analysis_result is not None and user_id is not None:
         try:
-            draft = _build_ebay_draft(
+            drafts = _build_ebay_drafts(
                 post=post,
                 analysis=analysis_result,
                 user_id=user_id,
-                settings=app_state["cloud_settings"],
+                settings=settings,
             )
-            updated = repo.set_ebay_draft(post.id, draft)
+            updated = repo.set_ebay_drafts(post.id, drafts)
             if updated is not None:
                 post = updated
         except Exception as exc:  # noqa: BLE001
@@ -1360,25 +1589,29 @@ def http_publish_ebay_listing(
     post = repo.get_by_id(post_id, include_deleted=False)
     if post is None:
         raise HTTPException(status_code=404, detail="post not found")
-    if not post.ebay_draft:
+    drafts_to_publish = list(post.ebay_drafts) if post.ebay_drafts else ([post.ebay_draft] if post.ebay_draft else [])
+    if not drafts_to_publish:
         raise HTTPException(status_code=422, detail="no eBay draft to publish")
     settings = app_state["cloud_settings"]
     public_base = settings.public_base_url or str(request.base_url)
     try:
-        listing = _publish_ebay_from_draft(
-            post=post,
-            draft=post.ebay_draft,
-            public_base=public_base,
-            settings=settings,
-            repo=token_repo,
-        )
+        listings = [
+            _publish_ebay_from_draft(
+                post=post,
+                draft=draft,
+                public_base=public_base,
+                settings=settings,
+                repo=token_repo,
+            )
+            for draft in drafts_to_publish
+        ]
     except HTTPException:
         raise
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=502, detail=str(exc)) from exc
-    updated = repo.replace_listings(post.id, [listing])
+    updated = repo.replace_listings(post.id, listings)
     if updated is not None:
-        updated = repo.set_ebay_draft(post.id, None)
+        updated = repo.set_ebay_drafts(post.id, [])
     if updated is None:
         raise HTTPException(status_code=404, detail="post not found")
     return PostResponse.from_post(

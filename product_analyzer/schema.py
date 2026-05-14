@@ -11,7 +11,7 @@ class PriceEstimate(BaseModel):
     comparable_sources: list[str] = Field(default_factory=list)
 
 
-class AnalyzeProductImageResponse(BaseModel):
+class DetectedProduct(BaseModel):
     product_name: str = ""
     brand: str = ""
     model: str = ""
@@ -20,3 +20,7 @@ class AnalyzeProductImageResponse(BaseModel):
     visible_text: list[str] = Field(default_factory=list)
     confidence: float = 0.0
     price_estimate: PriceEstimate = Field(default_factory=PriceEstimate)
+
+
+class AnalyzeProductImageResponse(DetectedProduct):
+    detected_items: list[DetectedProduct] = Field(default_factory=list)

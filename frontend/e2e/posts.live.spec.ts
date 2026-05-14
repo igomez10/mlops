@@ -45,6 +45,7 @@ test('uploads AirPods image and shows non-empty eBay draft (real services)', asy
     failOnStatusCode: false,
   })
 
+  await page.goto(`${PLAYWRIGHT_API_BASE}/__e2e__/authenticate-ebay`)
   await page.goto('/')
   await page.getByTestId('post-new-open').click()
 
@@ -53,9 +54,6 @@ test('uploads AirPods image and shows non-empty eBay draft (real services)', asy
   await page
     .getByTestId('post-create-description')
     .fill(description)
-
-  // user_id is required for the server to build an eBay draft.
-  await page.getByTestId('post-create-user-id').fill('live-e2e-test-user')
 
   await page.getByTestId('post-create-image').setInputFiles(airpodsFixturePath)
   await page.getByTestId('post-create-submit').click()

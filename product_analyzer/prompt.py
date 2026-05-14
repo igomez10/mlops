@@ -26,7 +26,25 @@ exactly this schema:
     "currency": "USD",
     "reasoning": "",
     "comparable_sources": []
-  }
+  },
+  "detected_items": [
+    {
+      "product_name": "",
+      "brand": "",
+      "model": "",
+      "category": "",
+      "condition_estimate": "",
+      "visible_text": [],
+      "confidence": 0.0,
+      "price_estimate": {
+        "low": 0,
+        "high": 0,
+        "currency": "USD",
+        "reasoning": "",
+        "comparable_sources": []
+      }
+    }
+  ]
 }
 
 Field guidance:
@@ -46,6 +64,10 @@ Field guidance:
   the range (condition, brand, typical used price).
 - price_estimate.comparable_sources: leave as an empty list for now; a later
   pricing step may populate this from eBay / Amazon / Google Shopping.
+- detected_items: every distinct sellable item visible in the photo. Include
+  one entry per item when multiple objects should become separate marketplace
+  listings. If there is only one item, include exactly one entry that matches
+  the top-level fields. If nothing sellable is visible, return an empty list.
 
 Output must be valid JSON and nothing else.
 """
