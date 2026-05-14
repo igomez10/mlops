@@ -16,7 +16,7 @@ export type PriceEstimate = {
   comparable_sources: string[]
 }
 
-export type ProductAnalysis = {
+export type DetectedProduct = {
   product_name: string
   brand: string
   model: string
@@ -25,6 +25,10 @@ export type ProductAnalysis = {
   visible_text: string[]
   confidence: number
   price_estimate: PriceEstimate
+}
+
+export type ProductAnalysis = DetectedProduct & {
+  detected_items?: DetectedProduct[]
 }
 
 export type EbayDraft = {
@@ -36,6 +40,10 @@ export type EbayDraft = {
   price: number
   currency: string
   item_specifics: Record<string, string[]>
+  draft_id?: string
+  source_image_url?: string
+  analysis_index?: number
+  draft_count?: number
 }
 
 export type EbaySession = {
@@ -56,4 +64,5 @@ export type Post = {
   image_urls: string[]
   analysis?: ProductAnalysis | null
   ebay_draft?: EbayDraft | null
+  ebay_drafts?: EbayDraft[]
 }
