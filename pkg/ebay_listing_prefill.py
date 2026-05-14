@@ -21,6 +21,13 @@ class EbayDraftPrefillService:
     settings: CloudSettings
     ebay_client: EbayClient
     gemini_client_factory: Callable[[CloudSettings], GeminiClient] = GeminiClient.from_settings
+    _DESCRIPTION_SYSTEM_PROMPT = (
+        "You write concise, appealing eBay listing descriptions for secondhand items.\n"
+        "Base the copy only on objects and details visible in the image analysis provided.\n"
+        "Do not mention external websites, sellers, links, policies, shipping, returns, or anything unverifiable.\n"
+        "Highlight the item's likely use, notable visible features, and condition in natural sales copy.\n"
+        "Return plain text only, 2 short paragraphs max."
+    )
 
     def build_draft(
         self,
@@ -30,7 +37,7 @@ class EbayDraftPrefillService:
         user_id: str,
     ) -> dict[str, Any]:
         title = self._resolve_listing_title(analysis, fallback=post.description or post.name)
-        description = self._resolve_listing_description(analysis, fallback=post.description)
+        description = self._generate_listing_description(analysis=analysis, fallback=post.description)
         price_value, currency = self._resolve_price_and_currency(analysis)
         category_id = self._resolve_category_id(analysis, post.description)
         desired_condition = self._resolve_condition(analysis)
@@ -78,11 +85,12 @@ class EbayDraftPrefillService:
         title = raw or fallback.strip() or "Marketplace listing"
         return title[:80]
 
-    @staticmethod
-    def _resolve_listing_description(analysis: dict[str, Any], fallback: str) -> str:
+    @classmethod
+    def _resolve_listing_description(cls, analysis: dict[str, Any], fallback: str) -> str:
         lines: list[str] = []
-        if fallback.strip():
-            lines.append(fallback.strip())
+        fallback_text = cls._strip_urls(fallback)
+        if fallback_text:
+            lines.append(fallback_text)
         product_name = str(analysis.get("product_name") or "").strip()
         if product_name:
             lines.append(f"Product: {product_name}")
@@ -96,6 +104,53 @@ class EbayDraftPrefillService:
         if visible_text:
             lines.append(f"Visible text: {', '.join(visible_text[:5])}")
         return "\n".join(lines) or "Listing created from uploaded product image."
+
+    def _generate_listing_description(self, *, analysis: dict[str, Any], fallback: str) -> str:
+        prompt = self._build_listing_description_prompt(analysis=analysis, fallback=fallback)
+        try:
+            gemini_client = self.gemini_client_factory(self.settings)
+            description = self._clean_generated_description(
+                gemini_client.generate_text(prompt, system_instruction=self._DESCRIPTION_SYSTEM_PROMPT)
+            )
+            if description:
+                return description
+        except Exception as exc:  # noqa: BLE001
+            log.warning("Gemini listing-description generation failed: %s", exc)
+        return self._resolve_listing_description(analysis, fallback)
+
+    @classmethod
+    def _build_listing_description_prompt(cls, *, analysis: dict[str, Any], fallback: str) -> str:
+        visible_text = [str(item).strip() for item in (analysis.get("visible_text") or []) if str(item).strip()]
+        product_info = "\n".join(
+            f"{key}: {value}"
+            for key, value in [
+                ("Original user description", cls._strip_urls(fallback)),
+                ("Product name", str(analysis.get("product_name") or "").strip()),
+                ("Brand", str(analysis.get("brand") or "").strip()),
+                ("Model", str(analysis.get("model") or "").strip()),
+                ("Category", str(analysis.get("category") or "").strip()),
+                ("Condition estimate", str(analysis.get("condition_estimate") or "").strip()),
+                ("Visible text in image", ", ".join(visible_text[:8])),
+            ]
+            if value
+        )
+        return (
+            "Write an eBay listing description for this item.\n"
+            "Use only the structured product details below.\n"
+            "Keep it specific, readable, and buyer-facing.\n\n"
+            f"{product_info}\n\n"
+            "Return plain text only."
+        )
+
+    @classmethod
+    def _clean_generated_description(cls, text: str) -> str:
+        cleaned = cls._strip_urls(text)
+        cleaned = re.sub(r"\n{3,}", "\n\n", cleaned).strip()
+        return cleaned
+
+    @staticmethod
+    def _strip_urls(text: str) -> str:
+        return re.sub(r"https?://\S+", "", text or "").strip()
 
     @staticmethod
     def _resolve_price_and_currency(analysis: dict[str, Any]) -> tuple[float, str]:

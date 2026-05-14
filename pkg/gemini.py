@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from google import genai
+from google.genai import types
 
 if TYPE_CHECKING:
     from pkg.config import CloudSettings
@@ -51,11 +52,19 @@ class GeminiClient:
     def model(self) -> str:
         return self._model
 
-    def generate_text(self, prompt: str) -> str:
-        response = self._client.models.generate_content(
-            model=self._model,
-            contents=prompt,
-        )
+    def generate_text(self, prompt: str, *, system_instruction: str | None = None) -> str:
+        if system_instruction:
+            config = types.GenerateContentConfig(system_instruction=system_instruction)
+            response = self._client.models.generate_content(
+                model=self._model,
+                contents=prompt,
+                config=config,
+            )
+        else:
+            response = self._client.models.generate_content(
+                model=self._model,
+                contents=prompt,
+            )
         text = getattr(response, "text", None)
         if text:
             return text

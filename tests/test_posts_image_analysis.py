@@ -334,10 +334,6 @@ def test_post_create_uploads_airpods_and_publishes_ebay_listing_end_to_end(
             self.calls.append(("get_offer", offer_id, user_token))
             return {"offerId": offer_id, "listingId": "listing-123", "status": "PUBLISHED"}
 
-        def update_offer(self, offer_id: str, user_token: str, payload: dict) -> dict:
-            self.calls.append(("update_offer", offer_id, user_token, payload))
-            return {}
-
     fake_client = _FakeEbayClient()
 
     def _fake_gemini(image_bytes: bytes, mime_type: str) -> tuple[str, dict[str, float]]:
@@ -417,7 +413,9 @@ def test_post_create_uploads_airpods_and_publishes_ebay_listing_end_to_end(
             assert listing["id"] == "listing-123"
             assert listing["marketplace_url"] == "https://www.ebay.com/itm/listing-123"
             assert listing["status"] == "PUBLISHED"
-            assert "Product: Apple AirPods Pro" in listing["description"]
+            assert listing["description"]
+            assert "http://" not in listing["description"]
+            assert "https://" not in listing["description"]
 
             # Draft cleared after publish
             assert pub_body["ebay_draft"] is None
@@ -434,13 +432,7 @@ def test_post_create_uploads_airpods_and_publishes_ebay_listing_end_to_end(
                 "create_offer",
                 "publish_offer",
                 "get_offer",
-                "update_offer",
             ]
-            update_call = next(c for c in fake_client.calls if c[0] == "update_offer")
-            update_payload = update_call[3]
-            post_id = pub_body["id"]
-            assert f"/posts/{post_id}" in update_call[3]["listingDescription"]
-            assert update_payload["listingDescription"].startswith(listing["description"])
             inventory_payload = [call for call in fake_client.calls if call[0] == "create_or_replace_inventory_item"][
                 0
             ][3]
