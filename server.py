@@ -640,19 +640,6 @@ def _publish_ebay_from_draft(
         or "published"
     )
 
-    # Best-effort: update the published listing description to include a back-link
-    # to the originating post in our app, so buyers can find it again.
-    post_url = f"{public_base.rstrip('/')}/posts/{post.id}"
-    description_with_link = f"{listing_description}\n\n---\nSee the original listing: {post_url}"
-    try:
-        client.update_offer(
-            offer_id,
-            token.access_token,
-            {**offer_payload, "listingDescription": description_with_link},
-        )
-    except Exception as exc:  # noqa: BLE001
-        log.warning("could not back-link post %s on eBay offer %s: %s", post.id, offer_id, exc)
-
     return Listing(
         id=listing_id,
         marketplace_url=marketplace_url,
