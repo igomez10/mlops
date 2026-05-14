@@ -95,6 +95,9 @@ class PostRepository(Protocol):
     def set_ebay_draft(self, post_id: str, draft: dict | None) -> Post | None:
         """Store (or clear) the eBay listing draft on the post."""
 
+    def set_ebay_drafts(self, post_id: str, drafts: list[dict]) -> Post | None:
+        """Store multiple eBay drafts and mirror the first one as the primary draft."""
+
 
 class InMemoryPostRepository:
     """Process-local store keyed by id with a secondary index on normalized name (active posts only)."""
@@ -175,6 +178,7 @@ class InMemoryPostRepository:
             image_urls=urls,
             analysis=analysis,
             ebay_draft=None,
+            ebay_drafts=[],
         )
         self._by_id[post.id] = post
         self._id_by_normalized_name[key] = post.id
@@ -249,5 +253,38 @@ class InMemoryPostRepository:
         if post is None:
             return None
         post.ebay_draft = draft
+        if post.ebay_drafts:
+            post.ebay_drafts[0:1] = [draft] if draft is not None else []
+        else:
+            post.ebay_drafts = [draft] if draft is not None else []
+        post.ebay_drafts = [candidate for candidate in post.ebay_drafts if candidate is not None]
+        post.ebay_draft = post.ebay_drafts[0] if post.ebay_drafts else None
+        post.updated_at = _utc_now()
+        return post
+
+    def set_ebay_drafts(self, post_id: str, drafts: list[dict]) -> Post | None:
+        log.info(
+            "InMemoryPostRepository.set_ebay_drafts post_id=%s draft_count=%d",
+            post_id,
+            len(drafts),
+        )
+        post = self.get_by_id(post_id, include_deleted=False)
+        if post is None:
+            return None
+        post.ebay_drafts = [dict(draft) for draft in drafts if isinstance(draft, dict)]
+        post.ebay_draft = post.ebay_drafts[0] if post.ebay_drafts else None
+        post.updated_at = _utc_now()
+        return post
+
+    def set_ebay_drafts(self, post_id: str, drafts: list[dict]) -> Post | None:
+        log.info(
+            "InMemoryPostRepository.set_ebay_drafts post_id=%s draft_count=%d",
+            post_id,
+            len(drafts),
+        )
+        post = self.get_by_id(post_id, include_deleted=False)
+        if post is None:
+            return None
+        post.ebay_drafts = list(drafts)
         post.updated_at = _utc_now()
         return post

@@ -12,15 +12,17 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
+from urllib.parse import urlparse
 
 import pytest
 from fastapi.testclient import TestClient
 
 from pkg import EbayUserToken, InMemoryEbayTokenRepository
+from pkg.ebay_auth_session import EbayAuthSessionManager
 from product_analyzer import ProductAnalyzer
 from product_analyzer.parser import parse_gemini_json
 from product_analyzer.schema import AnalyzeProductImageResponse, PriceEstimate
-from server import app, app_state
+from server import _ebay_state_secret, app, app_state
 
 
 @pytest.fixture
@@ -45,6 +47,52 @@ def _fake_analysis() -> AnalyzeProductImageResponse:
             reasoning="r",
             comparable_sources=[],
         ),
+    )
+
+
+def _fake_multi_item_analysis() -> AnalyzeProductImageResponse:
+    item_a = _fake_analysis().model_copy(
+        update={
+            "product_name": "Apple AirPods Pro",
+            "brand": "Apple",
+            "model": "AirPods Pro",
+            "category": "Earbud Headphones",
+            "visible_text": ["Apple", "AirPods Pro"],
+            "price_estimate": PriceEstimate(
+                low=110,
+                high=160,
+                currency="USD",
+                reasoning="r",
+                comparable_sources=[],
+            ),
+        }
+    )
+    item_b = _fake_analysis().model_copy(
+        update={
+            "product_name": "Apple Watch Series 9",
+            "brand": "Apple",
+            "model": "Series 9",
+            "category": "Smart Watches",
+            "visible_text": ["Apple Watch"],
+            "price_estimate": PriceEstimate(
+                low=180,
+                high=240,
+                currency="USD",
+                reasoning="r",
+                comparable_sources=[],
+            ),
+        }
+    )
+    return AnalyzeProductImageResponse(
+        product_name=item_a.product_name,
+        brand=item_a.brand,
+        model=item_a.model,
+        category=item_a.category,
+        condition_estimate=item_a.condition_estimate,
+        visible_text=item_a.visible_text,
+        confidence=item_a.confidence,
+        price_estimate=item_a.price_estimate,
+        detected_items=[item_a, item_b],
     )
 
 
@@ -80,6 +128,18 @@ def _seed_ebay_repo(user_id: str) -> InMemoryEbayTokenRepository:
         )
     )
     return repo
+
+
+def _set_authenticated_ebay_session_cookie(client: TestClient, user_id: str) -> None:
+    settings = app_state["cloud_settings"]
+    manager = EbayAuthSessionManager(_ebay_state_secret(settings))
+    host = urlparse(str(client.base_url)).hostname or "testserver"
+    client.cookies.set(
+        manager.cookie_name,
+        manager.serialize_session_cookie(user_id),
+        domain=host,
+        path="/",
+    )
 
 
 def _assert_live_gemini_auth_configured() -> None:
@@ -203,6 +263,92 @@ def test_post_create_uses_first_supported_image_when_mixed(client: TestClient) -
         assert get_r.json()["analysis"] == body["analysis"]
         assert len(captured) == 1
         assert captured[0][1] == "image/webp"
+    finally:
+        app_state.pop("product_analyzer", None)
+        app_state["images_storage"] = None
+
+
+def test_post_create_builds_multiple_drafts_and_placeholder_listings_for_multi_item_image(
+    client: TestClient,
+) -> None:
+    async def _spy(image_bytes, mime_type, *, filename=None, price_estimator=None):
+        assert mime_type == "image/jpeg"
+        assert image_bytes.startswith(b"\xff\xd8\xff")
+        return _fake_multi_item_analysis()
+
+    class _FakeEbayClient:
+        def get_category_suggestions(self, query: str, *, marketplace_id: str | None = None):
+            return [SimpleNamespace(category_id={"Apple AirPods Pro": "9355"}.get(query, "31387"))]
+
+        def get_valid_conditions(self, category_id: str, *, marketplace_id: str | None = None):
+            return ["NEW", "USED_EXCELLENT", "USED_GOOD"]
+
+        def get_item_aspects_for_category(self, category_id: str, *, category_tree_id: str | None = None):
+            return [
+                {"localizedAspectName": "Brand", "aspectConstraint": {"aspectRequired": True}},
+                {"localizedAspectName": "Model", "aspectConstraint": {"aspectRequired": True}},
+            ]
+
+    app_state["product_analyzer"] = _make_analyzer_mock(_spy)
+    app_state["images_storage"] = _make_storage_mock()
+    app_state["ebay_token_repository"] = _seed_ebay_repo("user-123")
+    try:
+        with patch("server._get_ebay_client", lambda settings: _FakeEbayClient()):
+            r = client.post(
+                "/posts",
+                data={"description": "mixed Apple items", "user_id": "user-123"},
+                files=[("files", ("bundle.jpg", b"\xff\xd8\xff jpeg-bytes", "image/jpeg"))],
+            )
+        assert r.status_code == 201, r.text
+        body = r.json()
+        assert body["analysis"] is not None
+        assert len(body["analysis"]["detected_items"]) == 2
+        assert len(body["listings"]) == 2
+        assert {listing["status"] for listing in body["listings"]} == {"draft"}
+        assert body["listings"][0]["description"].startswith("mixed Apple items")
+        assert body["listings"][1]["description"].startswith("mixed Apple items")
+        assert body["ebay_draft"]["title"] == "Apple AirPods Pro"
+        assert len(body["ebay_drafts"]) == 2
+        assert [draft["title"] for draft in body["ebay_drafts"]] == [
+            "Apple AirPods Pro",
+            "Apple Watch Series 9",
+        ]
+        assert all(
+            draft["source_image_url"].startswith("http://testserver/images/posts/")
+            for draft in body["ebay_drafts"]
+        )
+    finally:
+        app_state.pop("product_analyzer", None)
+        app_state["images_storage"] = None
+
+
+def test_post_create_skips_ebay_draft_without_authenticated_session_cookie(
+    client: TestClient,
+) -> None:
+    async def _spy(image_bytes, mime_type, *, filename=None, price_estimator=None):
+        assert mime_type == "image/jpeg"
+        assert image_bytes.startswith(b"\xff\xd8\xff")
+        return _fake_analysis()
+
+    class _FakeEbayClient:
+        def get_category_suggestions(self, query: str, *, marketplace_id: str | None = None):  # noqa: ARG002
+            raise AssertionError("should not build an ebay draft without an authenticated session")
+
+    app_state["product_analyzer"] = _make_analyzer_mock(_spy)
+    app_state["images_storage"] = _make_storage_mock()
+    app_state["ebay_token_repository"] = _seed_ebay_repo("user-123")
+    try:
+        with patch("server._get_ebay_client", lambda settings: _FakeEbayClient()):
+            r = client.post(
+                "/posts",
+                data={"description": "sessionless upload"},
+                files=[("files", ("single.jpg", b"\xff\xd8\xff jpeg-bytes", "image/jpeg"))],
+            )
+        assert r.status_code == 201, r.text
+        body = r.json()
+        assert body["analysis"] is not None
+        assert body["ebay_draft"] is None
+        assert body["ebay_drafts"] == []
     finally:
         app_state.pop("product_analyzer", None)
         app_state["images_storage"] = None
@@ -334,10 +480,6 @@ def test_post_create_uploads_airpods_and_publishes_ebay_listing_end_to_end(
             self.calls.append(("get_offer", offer_id, user_token))
             return {"offerId": offer_id, "listingId": "listing-123", "status": "PUBLISHED"}
 
-        def update_offer(self, offer_id: str, user_token: str, payload: dict) -> dict:
-            self.calls.append(("update_offer", offer_id, user_token, payload))
-            return {}
-
     fake_client = _FakeEbayClient()
 
     def _fake_gemini(image_bytes: bytes, mime_type: str) -> tuple[str, dict[str, float]]:
@@ -417,7 +559,9 @@ def test_post_create_uploads_airpods_and_publishes_ebay_listing_end_to_end(
             assert listing["id"] == "listing-123"
             assert listing["marketplace_url"] == "https://www.ebay.com/itm/listing-123"
             assert listing["status"] == "PUBLISHED"
-            assert "Product: Apple AirPods Pro" in listing["description"]
+            assert listing["description"]
+            assert "http://" not in listing["description"]
+            assert "https://" not in listing["description"]
 
             # Draft cleared after publish
             assert pub_body["ebay_draft"] is None
@@ -434,13 +578,7 @@ def test_post_create_uploads_airpods_and_publishes_ebay_listing_end_to_end(
                 "create_offer",
                 "publish_offer",
                 "get_offer",
-                "update_offer",
             ]
-            update_call = next(c for c in fake_client.calls if c[0] == "update_offer")
-            update_payload = update_call[3]
-            post_id = pub_body["id"]
-            assert f"/posts/{post_id}" in update_call[3]["listingDescription"]
-            assert update_payload["listingDescription"].startswith(listing["description"])
             inventory_payload = [call for call in fake_client.calls if call[0] == "create_or_replace_inventory_item"][
                 0
             ][3]
@@ -450,6 +588,105 @@ def test_post_create_uploads_airpods_and_publishes_ebay_listing_end_to_end(
             assert inventory_payload["product"].get("aspects", {}).get("Brand") == ["Apple"]
             assert inventory_payload["product"].get("aspects", {}).get("Color") == ["White"]
             assert inventory_payload["product"].get("aspects", {}).get("Connectivity") == ["Bluetooth"]
+    finally:
+        app_state.pop("product_analyzer", None)
+        app_state["images_storage"] = None
+
+
+def test_publish_ebay_listing_publishes_one_listing_per_detected_item(client: TestClient) -> None:
+    class _FakeEbayClient:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, object]] = []
+            self._sandbox = False
+
+        def get_category_suggestions(self, query: str, *, marketplace_id: str | None = None):
+            self.calls.append(("get_category_suggestions", query))
+            return [SimpleNamespace(category_id={"Apple AirPods Pro": "9355"}.get(query, "31387"))]
+
+        def get_valid_conditions(self, category_id: str, *, marketplace_id: str | None = None):
+            self.calls.append(("get_valid_conditions", category_id))
+            return ["NEW", "USED_EXCELLENT", "USED_GOOD"]
+
+        def get_item_aspects_for_category(self, category_id: str, *, category_tree_id: str | None = None):
+            self.calls.append(("get_item_aspects_for_category", category_id))
+            return [
+                {"localizedAspectName": "Brand", "aspectConstraint": {"aspectRequired": True}},
+                {"localizedAspectName": "Model", "aspectConstraint": {"aspectRequired": True}},
+            ]
+
+        def get_fulfillment_policies(self, user_token: str, *, marketplace_id: str | None = None):
+            self.calls.append(("get_fulfillment_policies", user_token))
+            return [SimpleNamespace(policy_id="fulfill-1")]
+
+        def get_payment_policies(self, user_token: str, *, marketplace_id: str | None = None):
+            self.calls.append(("get_payment_policies", user_token))
+            return [SimpleNamespace(policy_id="payment-1")]
+
+        def get_return_policies(self, user_token: str, *, marketplace_id: str | None = None):
+            self.calls.append(("get_return_policies", user_token))
+            return [SimpleNamespace(policy_id="return-1")]
+
+        def create_inventory_location(self, merchant_location_key: str, user_token: str, payload: dict):
+            self.calls.append(("create_inventory_location", merchant_location_key))
+
+        def create_or_replace_inventory_item(self, sku: str, user_token: str, payload: dict):
+            self.calls.append(("create_or_replace_inventory_item", sku, payload["product"]["title"]))
+
+        def create_offer(self, user_token: str, payload: dict) -> str:
+            offer_id = f"offer-{len([call for call in self.calls if call[0] == 'create_offer']) + 1}"
+            self.calls.append(("create_offer", payload["sku"], payload["listingDescription"]))
+            return offer_id
+
+        def publish_offer(self, offer_id: str, user_token: str) -> dict:
+            listing_id = f"listing-{offer_id.rsplit('-', 1)[-1]}"
+            self.calls.append(("publish_offer", offer_id))
+            return {"listingId": listing_id, "listingWebUrl": f"https://www.ebay.com/itm/{listing_id}"}
+
+        def get_offer(self, offer_id: str, user_token: str) -> dict:
+            listing_id = f"listing-{offer_id.rsplit('-', 1)[-1]}"
+            self.calls.append(("get_offer", offer_id))
+            return {"offerId": offer_id, "listingId": listing_id, "status": "PUBLISHED"}
+
+        def update_offer(self, offer_id: str, user_token: str, payload: dict) -> dict:
+            self.calls.append(("update_offer", offer_id, payload["listingDescription"]))
+            return {}
+
+    async def _spy(image_bytes, mime_type, *, filename=None, price_estimator=None):
+        return _fake_multi_item_analysis()
+
+    fake_client = _FakeEbayClient()
+    app_state["product_analyzer"] = _make_analyzer_mock(_spy)
+    app_state["images_storage"] = _make_storage_mock()
+    app_state["ebay_token_repository"] = _seed_ebay_repo("user-123")
+    try:
+        with patch("server._get_ebay_client", lambda settings: fake_client):
+            create_r = client.post(
+                "/posts",
+                data={"description": "bundle upload", "user_id": "user-123"},
+                files=[("files", ("bundle.jpg", b"\xff\xd8\xff jpeg-bytes", "image/jpeg"))],
+            )
+            assert create_r.status_code == 201, create_r.text
+            created = create_r.json()
+            assert len(created["ebay_drafts"]) == 2
+
+            fake_client.calls.clear()
+            publish_r = client.post(f"/posts/{created['id']}/ebay/publish")
+
+        assert publish_r.status_code == 200, publish_r.text
+        published = publish_r.json()
+        assert len(published["listings"]) == 2
+        assert [listing["id"] for listing in published["listings"]] == ["listing-1", "listing-2"]
+        assert published["ebay_draft"] is None
+        assert published["ebay_drafts"] == []
+        assert [listing["status"] for listing in published["listings"]] == ["PUBLISHED", "PUBLISHED"]
+
+        inventory_calls = [call for call in fake_client.calls if call[0] == "create_or_replace_inventory_item"]
+        assert len(inventory_calls) == 2
+        assert inventory_calls[0][1] != inventory_calls[1][1]
+        assert [call[2] for call in inventory_calls] == ["Apple AirPods Pro", "Apple Watch Series 9"]
+
+        publish_calls = [call for call in fake_client.calls if call[0] == "publish_offer"]
+        assert len(publish_calls) == 2
     finally:
         app_state.pop("product_analyzer", None)
         app_state["images_storage"] = None
@@ -551,10 +788,11 @@ def test_post_create_populates_analysis_live_gemini(client: TestClient) -> None:
     app_state["images_storage"] = _make_storage_mock()
     app_state["ebay_token_repository"] = _seed_ebay_repo("live-user")
     try:
+        _set_authenticated_ebay_session_cookie(client, "live-user")
         with patch("server._get_ebay_client", lambda settings: _FakeEbayClient()):
             r = client.post(
                 "/posts",
-                data={"description": "White Apple AirPods Pro Bluetooth earbuds", "user_id": "live-user"},
+                data={"description": "White Apple AirPods Pro Bluetooth earbuds"},
                 files=[("files", (image_path.name, image_path.read_bytes(), "image/jpeg"))],
             )
             assert r.status_code == 201, r.text

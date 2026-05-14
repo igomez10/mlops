@@ -1,4 +1,5 @@
 import type { EbayDraft, Post } from '../types/post'
+import type { EbaySession } from '../types/post'
 
 function apiBase(): string {
   const raw = import.meta.env.VITE_API_BASE_URL
@@ -25,6 +26,7 @@ async function readError(res: Response): Promise<string> {
 
 export async function fetchPosts(): Promise<Post[]> {
   const res = await fetch(`${apiBase()}/posts`, {
+    credentials: 'include',
     headers: { Accept: 'application/json' },
   })
   if (!res.ok) {
@@ -43,6 +45,7 @@ export async function createPost(
   const { description = '' } = options
   const res = await fetch(`${apiBase()}/posts`, {
     method: 'POST',
+    credentials: 'include',
     headers: {
       Accept: 'application/json',
       'Content-Type': 'application/json',
@@ -61,19 +64,16 @@ export async function createPost(
 export async function createPostWithImage(
   description: string,
   image: File,
-  options: { userId?: string } = {},
 ): Promise<Post> {
   if (!image || image.size === 0) {
     throw new Error('Choose an image')
   }
   const form = new FormData()
   form.append('description', description.trim())
-  if (options.userId?.trim()) {
-    form.append('user_id', options.userId.trim())
-  }
   form.append('files', image)
   const res = await fetch(`${apiBase()}/posts`, {
     method: 'POST',
+    credentials: 'include',
     body: form,
   })
   if (!res.ok) {
@@ -88,6 +88,7 @@ export async function updatePost(
 ): Promise<Post> {
   const res = await fetch(`${apiBase()}/posts/${encodeURIComponent(id)}`, {
     method: 'PUT',
+    credentials: 'include',
     headers: {
       Accept: 'application/json',
       'Content-Type': 'application/json',
@@ -108,6 +109,7 @@ export async function updateEbayDraft(
     `${apiBase()}/posts/${encodeURIComponent(postId)}/ebay-draft`,
     {
       method: 'PUT',
+      credentials: 'include',
       headers: {
         Accept: 'application/json',
         'Content-Type': 'application/json',
@@ -126,6 +128,7 @@ export async function publishEbayListing(postId: string): Promise<Post> {
     `${apiBase()}/posts/${encodeURIComponent(postId)}/ebay/publish`,
     {
       method: 'POST',
+      credentials: 'include',
       headers: { Accept: 'application/json' },
     },
   )
@@ -138,6 +141,7 @@ export async function publishEbayListing(postId: string): Promise<Post> {
 export async function deletePost(id: string): Promise<Post> {
   const res = await fetch(`${apiBase()}/posts/${encodeURIComponent(id)}`, {
     method: 'DELETE',
+    credentials: 'include',
     headers: {
       Accept: 'application/json',
     },
@@ -146,4 +150,21 @@ export async function deletePost(id: string): Promise<Post> {
     throw new Error(`Delete failed (${res.status}): ${await readError(res)}`)
   }
   return res.json() as Promise<Post>
+}
+
+export async function fetchEbaySession(): Promise<EbaySession> {
+  const res = await fetch(`${apiBase()}/auth/ebay/session`, {
+    credentials: 'include',
+    headers: { Accept: 'application/json' },
+  })
+  if (!res.ok) {
+    throw new Error(
+      `Failed to load eBay session (${res.status}): ${await readError(res)}`,
+    )
+  }
+  return res.json() as Promise<EbaySession>
+}
+
+export function getEbayConnectUrl(): string {
+  return `${apiBase()}/auth/ebay/connect`
 }

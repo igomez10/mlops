@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { createPost, createPostWithImage, updatePost } from './client'
+import { createPost, createPostWithImage, fetchEbaySession, updatePost } from './client'
 
 function jsonResponse(body: unknown, status: number) {
   return new Response(JSON.stringify(body), {
@@ -36,6 +36,7 @@ describe('client', () => {
     expect(result).toEqual(post)
     expect(fetch).toHaveBeenCalledWith('http://test.posts/posts', {
       method: 'POST',
+      credentials: 'include',
       headers: {
         Accept: 'application/json',
         'Content-Type': 'application/json',
@@ -59,19 +60,20 @@ describe('client', () => {
     const file = new File([new Uint8Array([1, 2, 3])], 'a.png', {
       type: 'image/png',
     })
-    const result = await createPostWithImage('A', file, { userId: 'user-123' })
+    const result = await createPostWithImage('A', file)
     expect(result).toEqual(out)
     expect(fetch).toHaveBeenCalledTimes(1)
     const [, requestInit] = vi.mocked(fetch).mock.calls[0]
     expect(requestInit).toEqual(
       expect.objectContaining({
         method: 'POST',
+        credentials: 'include',
         body: expect.any(FormData),
       }),
     )
     const form = requestInit?.body as FormData
     expect(form.get('description')).toBe('A')
-    expect(form.get('user_id')).toBe('user-123')
+    expect(form.get('user_id')).toBeNull()
   })
 
   it('updatePost sends body object', async () => {
@@ -92,6 +94,7 @@ describe('client', () => {
     expect(result).toEqual(post)
     expect(fetch).toHaveBeenCalledWith('http://test.posts/posts/a', {
       method: 'PUT',
+      credentials: 'include',
       headers: {
         Accept: 'application/json',
         'Content-Type': 'application/json',
@@ -106,5 +109,19 @@ describe('client', () => {
     )
 
     await expect(createPost('x')).rejects.toThrow('bad name')
+  })
+
+  it('fetchEbaySession includes credentials and returns parsed status', async () => {
+    vi.mocked(fetch).mockResolvedValue(
+      jsonResponse({ user_id: 'user-1', ebay_authenticated: true }, 200),
+    )
+
+    const result = await fetchEbaySession()
+
+    expect(result).toEqual({ user_id: 'user-1', ebay_authenticated: true })
+    expect(fetch).toHaveBeenCalledWith('http://test.posts/auth/ebay/session', {
+      credentials: 'include',
+      headers: { Accept: 'application/json' },
+    })
   })
 })

@@ -20,3 +20,7 @@ class AnalyzeProductImageResponse(BaseModel):
     visible_text: list[str] = Field(default_factory=list)
     confidence: float = 0.0
     price_estimate: PriceEstimate = Field(default_factory=PriceEstimate)
+    detected_items: list["AnalyzeProductImageResponse"] = Field(default_factory=list)
+
+
+AnalyzeProductImageResponse.model_rebuild()

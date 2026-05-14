@@ -33,3 +33,6 @@ class Post:
     analysis: dict | None = None
     # Draft eBay listing (category, title, item specifics, etc.) awaiting user review.
     ebay_draft: dict | None = None
+    # Multi-item analysis can produce several candidate drafts; keep the primary
+    # draft mirrored in ``ebay_draft`` for existing API consumers.
+    ebay_drafts: list[dict] = field(default_factory=list)

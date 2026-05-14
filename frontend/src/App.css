@@ -1373,6 +1373,13 @@
   border-bottom: 1px solid var(--border);
 }
 
+.post-list-toolbar-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+}
+
 .post-list-title {
   margin: 0;
   font-family: var(--font-display);
@@ -1404,6 +1411,15 @@
 .post-new-button:disabled {
   box-shadow: none;
   opacity: 0.5;
+}
+
+a.post-auth-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 2.25rem;
+  padding: 0 0.9rem;
+  text-decoration: none;
 }
 
 /* ─── Create dialog ──────────────────────────────────────── */
@@ -1457,6 +1473,22 @@
   font-size: 0.85rem;
   color: var(--ink-2);
   line-height: 1.5;
+}
+
+.post-create-ebay-note {
+  margin-top: 0.1rem;
+  padding: 0.8rem 0.9rem;
+  border: 1px solid rgba(37, 99, 235, 0.14);
+  border-radius: 0.9rem;
+  background: rgba(37, 99, 235, 0.04);
+  color: var(--ink-2);
+  font-size: 0.94rem;
+  line-height: 1.5;
+}
+
+.post-create-ebay-note a {
+  color: var(--accent);
+  font-weight: 600;
 }
 
 .post-create-dialog-body {
@@ -1661,6 +1693,20 @@ button.secondary:hover:not(:disabled) {
   border-color: var(--border-strong);
 }
 
+a.secondary {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--ink-2);
+  box-shadow: none;
+  border-radius: var(--radius-sm);
+}
+
+a.secondary:hover {
+  background: var(--bg-3);
+  color: var(--ink);
+  border-color: var(--border-strong);
+}
+
 button.danger {
   color: var(--danger-text);
   border-color: var(--danger-border);
@@ -1813,6 +1859,11 @@ code {
   color: #166534;
 }
 
+.badge.muted {
+  background: rgba(15, 23, 42, 0.08);
+  color: var(--ink-2);
+}
+
 .badge.deleted {
   background: #fee2e2;
   color: #991b1b;
@@ -1928,6 +1979,12 @@ code {
   background: rgba(16, 185, 129, 0.12);
   color: #166534;
   border: 1px solid rgba(16, 185, 129, 0.3);
+}
+
+.badge.muted {
+  background: rgba(15, 23, 42, 0.06);
+  color: var(--ink-2);
+  border: 1px solid rgba(15, 23, 42, 0.08);
 }
 
 .badge.deleted {
