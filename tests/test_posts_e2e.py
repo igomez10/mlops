@@ -21,16 +21,16 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
-from urllib.parse import urlparse
 from unittest.mock import MagicMock, patch
+from urllib.parse import urlparse
 
 import httpx
 import pytest
 from fastapi.testclient import TestClient
+from pkg.ebay_auth_session import EbayAuthSessionManager
 from pymongo import MongoClient
 
 from pkg import EbayUserToken, InMemoryEbayTokenRepository
-from pkg.ebay_auth_session import EbayAuthSessionManager
 from product_analyzer import ProductAnalyzer
 from product_analyzer.schema import AnalyzeProductImageResponse, PriceEstimate
 from server import _ebay_state_secret, app, app_state

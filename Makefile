@@ -13,7 +13,7 @@ DEV_MLFLOW_URL := http://127.0.0.1:$(DEV_MLFLOW_PORT)
 DEV_MONGODB_URL := mongodb://127.0.0.1:$(DEV_MONGO_PORT)
 
 COMPOSE := docker compose
-LOAD_DOTENV = if [ -f .env ]; then set -a; . ./.envproduction; set +a; fi;
+LOAD_DOTENV = if [ -f .env ]; then set -a; . ./.env; set +a; fi;
 
 GCP_REGION := us-central1
 GCP_PROJECT := mlops-492103
@@ -27,7 +27,7 @@ FASTAPI_IMAGE := $(GCP_REGION)-docker.pkg.dev/$(GCP_PROJECT)/fastapi/fastapi:lat
 FASTAPI_DEV_IMAGE := $(GCP_REGION)-docker.pkg.dev/$(GCP_PROJECT)/fastapi/fastapi-ignacio:latest
 MLFLOW_VERSION := v3.10.1-full
 
-.PHONY: build run stop clean tf-plan tf-apply gcp-build-app push-mlflow push-fastapi push-fastapi-dev redeploy-mlflow redeploy-fastapi redeploy-fastapi-dev deploy-fastapi-local deploy-fastapi-dev-local run-fastapi run-fastapi-firestore compose-up-dev dev-server dev-server-mongo start-docker-compose frontend-install frontend-dev ui frontend-test frontend-e2e lint test clear-posts clear-posts-firestore completion-zsh vertex-upload-toy-model vertex-deploy-toy-model vertex-undeploy-toy-model
+.PHONY: build run stop clean tf-plan tf-apply gcp-build-app push-mlflow push-fastapi push-fastapi-dev redeploy-mlflow redeploy-fastapi redeploy-fastapi-dev deploy-fastapi-local deploy-fastapi-dev-local run-fastapi run-fastapi-firestore compose-up-dev dev-server dev-server-mongo start-docker-compose frontend-install frontend-dev ui frontend-test frontend-e2e lint lint-fix test clear-posts clear-posts-firestore completion-zsh vertex-upload-toy-model vertex-deploy-toy-model vertex-undeploy-toy-model
 
 build-fastapi:
 	docker build -t $(FASTAPI_IMAGE) -f Dockerfile.fastapi .
@@ -107,7 +107,10 @@ run-fastapi:
 	GCS_IMAGES_BUCKET=$(DEV_GCS_IMAGES_BUCKET) \
 	POSTS_BACKEND=mongodb \
 	MONGODB_URI=$(DEV_MONGODB_URL) \
-	uvicorn server:app --host 0.0.0.0 --port 8000 --reload
+	zsh -c 'uvicorn server:app --host 127.0.0.1 --port 8001 --reload & \
+	UVICORN_PID=$$!; \
+	trap "kill $$UVICORN_PID" EXIT INT TERM; \
+	caddy reverse-proxy --from https://localhost:8000 --to http://127.0.0.1:8001'
 
 run-fastapi-firestore:
 	$(LOAD_DOTENV) \
@@ -115,7 +118,10 @@ run-fastapi-firestore:
 	GOOGLE_CLOUD_PROJECT=$(GCP_PROJECT) \
 	POSTS_BACKEND=firestore \
 	FIRESTORE_DATABASE_ID='(default)' \
-	uvicorn server:app --host 0.0.0.0 --port 8000 --reload
+	zsh -c 'uvicorn server:app --host 127.0.0.1 --port 8001 --reload & \
+	UVICORN_PID=$$!; \
+	trap "kill $$UVICORN_PID" EXIT INT TERM; \
+	caddy reverse-proxy --from https://localhost:8000 --to http://127.0.0.1:8001'
 
 # Start MLflow + MongoDB for local dev (host uses localhost URLs, not Docker service names).
 compose-up-dev:
@@ -185,6 +191,10 @@ lint:
 	uv sync --frozen --group dev
 	uv run ruff check .
 	uv run mypy pkg/ server.py
+
+lint-fix:
+	uv sync --frozen --group dev
+	uv run ruff check --fix .
 
 completion-zsh:
 	mkdir -p scripts/completion

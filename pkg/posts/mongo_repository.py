@@ -60,7 +60,11 @@ def _doc_to_post(doc: dict[str, Any]) -> Post:
     raw_ebay_draft = doc.get("ebay_draft")
     ebay_draft = raw_ebay_draft if isinstance(raw_ebay_draft, dict) else None
     raw_ebay_drafts = doc.get("ebay_drafts")
-    ebay_drafts = [item for item in raw_ebay_drafts if isinstance(item, dict)] if isinstance(raw_ebay_drafts, list) else []
+    ebay_drafts = (
+        [item for item in raw_ebay_drafts if isinstance(item, dict)]
+        if isinstance(raw_ebay_drafts, list)
+        else []
+    )
     if not ebay_drafts and ebay_draft is not None:
         ebay_drafts = [ebay_draft]
     if ebay_draft is None and ebay_drafts:
@@ -294,7 +298,13 @@ class MongoPostRepository:
             return None
         self._coll.update_one(
             {"_id": post_id},
-            {"$set": {"ebay_draft": draft, "ebay_drafts": ([draft] if draft is not None else []), "updated_at": _utc_now()}},
+            {
+                "$set": {
+                    "ebay_draft": draft,
+                    "ebay_drafts": ([draft] if draft is not None else []),
+                    "updated_at": _utc_now(),
+                }
+            },
         )
         doc = self._coll.find_one({"_id": post_id})
         return _doc_to_post(doc) if doc else None

@@ -201,10 +201,7 @@ def _ebay_auth_session_manager(settings: CloudSettings) -> EbayAuthSessionManage
 
 
 def _should_secure_session_cookie(request: Request, settings: CloudSettings) -> bool:
-    if request.url.scheme == "https":
-        return True
-    public_base = (settings.public_base_url or "").strip().lower()
-    return public_base.startswith("https://")
+    return request.url.scheme == "https"
 
 
 def _get_ebay_session(request: Request, settings: CloudSettings) -> EbayAuthSession | None:
@@ -958,7 +955,7 @@ if os.environ.get("E2E_TEST") == "1":
         app_state["ebay_client"] = _E2EConfiguredEbayClient()
         return {"ok": True}
 
-    @app.post("/__e2e__/authenticate-ebay")
+    @app.api_route("/__e2e__/authenticate-ebay", methods=["GET", "POST"])
     def e2e_authenticate_ebay(request: Request, response: Response) -> dict[str, str]:
         """In-memory only: seed an authenticated eBay session for browser tests."""
         settings = app_state["cloud_settings"]
@@ -1100,7 +1097,12 @@ def ebay_callback(
         error_description=error_description,
         repo=repo,
     )
-    _attach_ebay_session_cookie(response, request=request, settings=app_state["cloud_settings"], user_id=callback.user_id)
+    _attach_ebay_session_cookie(
+        response,
+        request=request,
+        settings=app_state["cloud_settings"],
+        user_id=callback.user_id,
+    )
     return callback
 
 
@@ -1185,7 +1187,12 @@ def ebay_authorization_accepted(
             "</body></html>"
         )
     )
-    _attach_ebay_session_cookie(response, request=request, settings=app_state["cloud_settings"], user_id=callback.user_id)
+    _attach_ebay_session_cookie(
+        response,
+        request=request,
+        settings=app_state["cloud_settings"],
+        user_id=callback.user_id,
+    )
     return response
 
 
