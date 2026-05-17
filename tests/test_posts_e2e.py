@@ -21,16 +21,16 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
-from urllib.parse import urlparse
 from unittest.mock import MagicMock, patch
+from urllib.parse import urlparse
 
 import httpx
 import pytest
 from fastapi.testclient import TestClient
+from pkg.ebay_auth_session import EbayAuthSessionManager
 from pymongo import MongoClient
 
 from pkg import EbayUserToken, InMemoryEbayTokenRepository
-from pkg.ebay_auth_session import EbayAuthSessionManager
 from product_analyzer import ProductAnalyzer
 from product_analyzer.schema import AnalyzeProductImageResponse, PriceEstimate
 from server import _ebay_state_secret, app, app_state
@@ -594,9 +594,8 @@ def test_e2e_publish_uses_public_base_url_for_ebay_images(e2e_client: TestClient
     app_state["ebay_token_repository"] = _seed_token("user-puburl-test")
     original_settings = app_state["cloud_settings"]
     from pkg.config import CloudSettings
-    app_state["cloud_settings"] = CloudSettings(
-        **{**original_settings.__dict__, "public_base_url": production_url}
-    )
+
+    app_state["cloud_settings"] = CloudSettings(**{**original_settings.__dict__, "public_base_url": production_url})
     try:
         with patch("server._get_ebay_client", lambda _: fake_ebay):
             r = e2e_client.post(

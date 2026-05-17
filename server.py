@@ -20,6 +20,7 @@ from fastapi import Depends, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
+from pkg.ebay_auth_session import EbayAuthSession, EbayAuthSessionManager
 from pydantic import BaseModel, Field, model_validator
 from pymongo import MongoClient
 from starlette.requests import Request
@@ -40,7 +41,6 @@ from pkg import (
     MongoEbayTokenRepository,
 )
 from pkg.ebay import DEFAULT_USER_SCOPES, EbayClient
-from pkg.ebay_auth_session import EbayAuthSession, EbayAuthSessionManager
 from pkg.ebay_listing_prefill import EbayDraftPrefillService
 from pkg.gcs import api_absolute_url_for_object_key, normalize_stored_to_object_key  # noqa: E402
 from pkg.gemini import GeminiClient
@@ -649,46 +649,59 @@ def _publish_ebay_from_draft(
     fulfillment_policies = client.get_fulfillment_policies(token.access_token, marketplace_id=mid)
     if not fulfillment_policies:
         log.info("controller._publish_ebay_from_draft creating default fulfillment policy")
-        client.create_fulfillment_policy(token.access_token, {
-            "name": "Default Fulfillment Policy",
-            "marketplaceId": mid,
-            "categoryTypes": [{"name": "ALL_EXCLUDING_MOTORS_VEHICLES"}],
-            "handlingTime": {"unit": "DAY", "value": 1},
-            "shippingOptions": [{
-                "costType": "FLAT_RATE",
-                "optionType": "DOMESTIC",
-                "shippingServices": [{
-                    "buyerResponsibleForShipping": False,
-                    "freeShipping": True,
-                    "shippingCarrierCode": "USPS",
-                    "shippingServiceCode": "USPSPriorityFlatRateBox",
-                    "shippingCost": {"currency": "USD", "value": "0.0"},
-                }],
-            }],
-        })
+        client.create_fulfillment_policy(
+            token.access_token,
+            {
+                "name": "Default Fulfillment Policy",
+                "marketplaceId": mid,
+                "categoryTypes": [{"name": "ALL_EXCLUDING_MOTORS_VEHICLES"}],
+                "handlingTime": {"unit": "DAY", "value": 1},
+                "shippingOptions": [
+                    {
+                        "costType": "FLAT_RATE",
+                        "optionType": "DOMESTIC",
+                        "shippingServices": [
+                            {
+                                "buyerResponsibleForShipping": False,
+                                "freeShipping": True,
+                                "shippingCarrierCode": "USPS",
+                                "shippingServiceCode": "USPSPriorityFlatRateBox",
+                                "shippingCost": {"currency": "USD", "value": "0.0"},
+                            }
+                        ],
+                    }
+                ],
+            },
+        )
         fulfillment_policies = client.get_fulfillment_policies(token.access_token, marketplace_id=mid)
     payment_policies = client.get_payment_policies(token.access_token, marketplace_id=mid)
     if not payment_policies:
         log.info("controller._publish_ebay_from_draft creating default payment policy")
-        client.create_payment_policy(token.access_token, {
-            "name": "Default Payment Policy",
-            "marketplaceId": mid,
-            "categoryTypes": [{"name": "ALL_EXCLUDING_MOTORS_VEHICLES"}],
-            "immediatePay": True,
-        })
+        client.create_payment_policy(
+            token.access_token,
+            {
+                "name": "Default Payment Policy",
+                "marketplaceId": mid,
+                "categoryTypes": [{"name": "ALL_EXCLUDING_MOTORS_VEHICLES"}],
+                "immediatePay": True,
+            },
+        )
         payment_policies = client.get_payment_policies(token.access_token, marketplace_id=mid)
     return_policies = client.get_return_policies(token.access_token, marketplace_id=mid)
     if not return_policies:
         log.info("controller._publish_ebay_from_draft creating default return policy")
-        client.create_return_policy(token.access_token, {
-            "name": "Default Return Policy",
-            "marketplaceId": mid,
-            "categoryTypes": [{"name": "ALL_EXCLUDING_MOTORS_VEHICLES"}],
-            "returnsAccepted": True,
-            "refundMethod": "MONEY_BACK",
-            "returnPeriod": {"value": 30, "unit": "DAY"},
-            "returnShippingCostPayer": "SELLER",
-        })
+        client.create_return_policy(
+            token.access_token,
+            {
+                "name": "Default Return Policy",
+                "marketplaceId": mid,
+                "categoryTypes": [{"name": "ALL_EXCLUDING_MOTORS_VEHICLES"}],
+                "returnsAccepted": True,
+                "refundMethod": "MONEY_BACK",
+                "returnPeriod": {"value": 30, "unit": "DAY"},
+                "returnShippingCostPayer": "SELLER",
+            },
+        )
         return_policies = client.get_return_policies(token.access_token, marketplace_id=mid)
     if not fulfillment_policies:
         raise RuntimeError("no eBay fulfillment policies available for the authenticated user")
@@ -1100,7 +1113,12 @@ def ebay_callback(
         error_description=error_description,
         repo=repo,
     )
-    _attach_ebay_session_cookie(response, request=request, settings=app_state["cloud_settings"], user_id=callback.user_id)
+    _attach_ebay_session_cookie(
+        response,
+        request=request,
+        settings=app_state["cloud_settings"],
+        user_id=callback.user_id,
+    )
     return callback
 
 
@@ -1185,7 +1203,12 @@ def ebay_authorization_accepted(
             "</body></html>"
         )
     )
-    _attach_ebay_session_cookie(response, request=request, settings=app_state["cloud_settings"], user_id=callback.user_id)
+    _attach_ebay_session_cookie(
+        response,
+        request=request,
+        settings=app_state["cloud_settings"],
+        user_id=callback.user_id,
+    )
     return response
 
 
@@ -1318,9 +1341,7 @@ class PostResponse(BaseModel):
             analysis=post.analysis,
             ebay_draft=_draft_with_public_image(post.ebay_draft),
             ebay_drafts=[
-                converted
-                for draft in post.ebay_drafts
-                if (converted := _draft_with_public_image(draft)) is not None
+                converted for draft in post.ebay_drafts if (converted := _draft_with_public_image(draft)) is not None
             ],
         )
 
