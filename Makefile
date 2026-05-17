@@ -27,7 +27,7 @@ FASTAPI_IMAGE := $(GCP_REGION)-docker.pkg.dev/$(GCP_PROJECT)/fastapi/fastapi:lat
 FASTAPI_DEV_IMAGE := $(GCP_REGION)-docker.pkg.dev/$(GCP_PROJECT)/fastapi/fastapi-ignacio:latest
 MLFLOW_VERSION := v3.10.1-full
 
-.PHONY: build run stop clean tf-plan tf-apply gcp-build-app push-mlflow push-fastapi push-fastapi-dev redeploy-mlflow redeploy-fastapi redeploy-fastapi-dev deploy-fastapi-local deploy-fastapi-dev-local run-fastapi run-fastapi-firestore compose-up-dev dev-server dev-server-mongo start-docker-compose frontend-install frontend-dev ui frontend-test frontend-e2e lint test clear-posts clear-posts-firestore completion-zsh vertex-upload-toy-model vertex-deploy-toy-model vertex-undeploy-toy-model
+.PHONY: build run stop clean tf-plan tf-apply gcp-build-app push-mlflow push-fastapi push-fastapi-dev redeploy-mlflow redeploy-fastapi redeploy-fastapi-dev deploy-fastapi-local deploy-fastapi-dev-local run-fastapi run-fastapi-firestore compose-up-dev dev-server dev-server-mongo start-docker-compose frontend-install frontend-dev ui frontend-test frontend-e2e lint lint-fix test clear-posts clear-posts-firestore completion-zsh vertex-upload-toy-model vertex-deploy-toy-model vertex-undeploy-toy-model
 
 build-fastapi:
 	docker build -t $(FASTAPI_IMAGE) -f Dockerfile.fastapi .
@@ -185,6 +185,10 @@ lint:
 	uv sync --frozen --group dev
 	uv run ruff check .
 	uv run mypy pkg/ server.py
+
+lint-fix:
+	uv sync --frozen --group dev
+	uv run ruff check --fix .
 
 completion-zsh:
 	mkdir -p scripts/completion

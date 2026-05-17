@@ -20,6 +20,7 @@ from fastapi import Depends, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
+from pkg.ebay_auth_session import EbayAuthSession, EbayAuthSessionManager
 from pydantic import BaseModel, Field, model_validator
 from pymongo import MongoClient
 from starlette.requests import Request
@@ -40,7 +41,6 @@ from pkg import (
     MongoEbayTokenRepository,
 )
 from pkg.ebay import DEFAULT_USER_SCOPES, EbayClient
-from pkg.ebay_auth_session import EbayAuthSession, EbayAuthSessionManager
 from pkg.ebay_listing_prefill import EbayDraftPrefillService
 from pkg.gcs import api_absolute_url_for_object_key, normalize_stored_to_object_key  # noqa: E402
 from pkg.gemini import GeminiClient
@@ -1100,7 +1100,12 @@ def ebay_callback(
         error_description=error_description,
         repo=repo,
     )
-    _attach_ebay_session_cookie(response, request=request, settings=app_state["cloud_settings"], user_id=callback.user_id)
+    _attach_ebay_session_cookie(
+        response,
+        request=request,
+        settings=app_state["cloud_settings"],
+        user_id=callback.user_id,
+    )
     return callback
 
 
@@ -1185,7 +1190,12 @@ def ebay_authorization_accepted(
             "</body></html>"
         )
     )
-    _attach_ebay_session_cookie(response, request=request, settings=app_state["cloud_settings"], user_id=callback.user_id)
+    _attach_ebay_session_cookie(
+        response,
+        request=request,
+        settings=app_state["cloud_settings"],
+        user_id=callback.user_id,
+    )
     return response
 
 
