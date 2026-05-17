@@ -13,7 +13,7 @@ DEV_MLFLOW_URL := http://127.0.0.1:$(DEV_MLFLOW_PORT)
 DEV_MONGODB_URL := mongodb://127.0.0.1:$(DEV_MONGO_PORT)
 
 COMPOSE := docker compose
-LOAD_DOTENV = if [ -f .env ]; then set -a; . ./.envproduction; set +a; fi;
+LOAD_DOTENV = if [ -f .env ]; then set -a; . ./.env; set +a; fi;
 
 GCP_REGION := us-central1
 GCP_PROJECT := mlops-492103
@@ -107,7 +107,10 @@ run-fastapi:
 	GCS_IMAGES_BUCKET=$(DEV_GCS_IMAGES_BUCKET) \
 	POSTS_BACKEND=mongodb \
 	MONGODB_URI=$(DEV_MONGODB_URL) \
-	uvicorn server:app --host 0.0.0.0 --port 8000 --reload
+	zsh -c 'uvicorn server:app --host 127.0.0.1 --port 8001 --reload & \
+	UVICORN_PID=$$!; \
+	trap "kill $$UVICORN_PID" EXIT INT TERM; \
+	caddy reverse-proxy --from https://localhost:8000 --to http://127.0.0.1:8001'
 
 run-fastapi-firestore:
 	$(LOAD_DOTENV) \
@@ -115,7 +118,10 @@ run-fastapi-firestore:
 	GOOGLE_CLOUD_PROJECT=$(GCP_PROJECT) \
 	POSTS_BACKEND=firestore \
 	FIRESTORE_DATABASE_ID='(default)' \
-	uvicorn server:app --host 0.0.0.0 --port 8000 --reload
+	zsh -c 'uvicorn server:app --host 127.0.0.1 --port 8001 --reload & \
+	UVICORN_PID=$$!; \
+	trap "kill $$UVICORN_PID" EXIT INT TERM; \
+	caddy reverse-proxy --from https://localhost:8000 --to http://127.0.0.1:8001'
 
 # Start MLflow + MongoDB for local dev (host uses localhost URLs, not Docker service names).
 compose-up-dev:

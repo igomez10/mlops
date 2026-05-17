@@ -53,14 +53,17 @@ class GeminiClient:
         return self._model
 
     def generate_text(self, prompt: str, *, system_instruction: str | None = None) -> str:
-        request_config: types.GenerateContentConfig | None = None
         if system_instruction:
-            request_config = types.GenerateContentConfig(system_instruction=system_instruction)
-        response = self._client.models.generate_content(
-            model=self._model,
-            contents=prompt,
-            config=request_config,
-        )
+            response = self._client.models.generate_content(
+                model=self._model,
+                contents=prompt,
+                config=types.GenerateContentConfig(system_instruction=system_instruction),
+            )
+        else:
+            response = self._client.models.generate_content(
+                model=self._model,
+                contents=prompt,
+            )
         text = getattr(response, "text", None)
         if text:
             return text

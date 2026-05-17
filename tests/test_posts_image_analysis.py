@@ -506,6 +506,12 @@ def test_post_create_uploads_airpods_and_publishes_ebay_listing_end_to_end(
     app_state["product_analyzer"] = ProductAnalyzer(gemini_caller=_fake_gemini)
     app_state["images_storage"] = _make_storage_mock()
     app_state["ebay_token_repository"] = _seed_ebay_repo("user-123")
+    original_settings = app_state["cloud_settings"]
+    from pkg.config import CloudSettings
+
+    app_state["cloud_settings"] = CloudSettings(
+        **{**original_settings.__dict__, "public_base_url": None}
+    )
     try:
         with (
             patch("server._get_ebay_client", lambda settings: fake_client),
@@ -591,6 +597,7 @@ def test_post_create_uploads_airpods_and_publishes_ebay_listing_end_to_end(
     finally:
         app_state.pop("product_analyzer", None)
         app_state["images_storage"] = None
+        app_state["cloud_settings"] = original_settings
 
 
 def test_publish_ebay_listing_publishes_one_listing_per_detected_item(client: TestClient) -> None:
