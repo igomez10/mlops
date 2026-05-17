@@ -16,9 +16,9 @@ from urllib.parse import urlparse
 
 import pytest
 from fastapi.testclient import TestClient
-from pkg.ebay_auth_session import EbayAuthSessionManager
 
 from pkg import EbayUserToken, InMemoryEbayTokenRepository
+from pkg.ebay_auth_session import EbayAuthSessionManager
 from product_analyzer import ProductAnalyzer
 from product_analyzer.parser import parse_gemini_json
 from product_analyzer.schema import AnalyzeProductImageResponse, PriceEstimate
